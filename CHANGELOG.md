@@ -46,10 +46,14 @@ the notes of the version's GitHub Release.
 - The last check of a command runs once the connection is up, right
   before the first byte leaves.
 - Write access counts only when `/JI` gives nothing, 1, true or "1"; an
-  unknown bus refuses the commands; HTTP 403 also names the trusted IP
-  addresses of BSB-LAN; on a PPS bus the setpoint is a read-only feature.
-- A poll started before a command never republishes what the command
-  re-read; no follow-up read while the adapter does not answer.
+  unknown bus refuses the commands; on a PPS bus the setpoint is a
+  read-only feature.
+- A command's fresh read replaces only the parameters a poll batch read
+  before it; no follow-up read while the adapter does not answer.
+- A hot water reduced setpoint (1612) above the ceiling is named in the
+  refusal.
+- The "unreachable" status says that BSB-LAN closes the connection on a
+  wrong passkey or an IP address it does not trust.
 - "Test the connection" button; documentation in English and French;
   `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
 

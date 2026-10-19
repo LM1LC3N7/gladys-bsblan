@@ -162,8 +162,10 @@ export function fakeBsbLan({
 
   const answer = (request) => {
     const prefix = fake.passkey ? `/${fake.passkey}` : '';
-    if (!request.path.startsWith(`${prefix}/`)) {
-      return json(404, 'Not found');
+    // As the firmware: a wrong passkey (or an IP not trusted) closes the
+    // connection without any answer, never a 404.
+    if (!request.path.startsWith(`${prefix}/`) || fake.untrusted) {
+      return 'close';
     }
     if (fake.auth) {
       const expected = `Basic ${Buffer.from(`${fake.auth.username}:${fake.auth.password}`).toString('base64')}`;
@@ -254,7 +256,12 @@ export function fakeBsbLan({
         } else if (override?.raw !== undefined) {
           resolve(json(200, override.raw));
         } else {
-          resolve(answer(request));
+          const result = answer(request);
+          if (result === 'close') {
+            reject(new BsbError(CODES.UNREACHABLE, { sent: true }));
+          } else {
+            resolve(result);
+          }
         }
       }, delay);
     });

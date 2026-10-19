@@ -48,7 +48,6 @@ up to date at the end of every milestone.
 - **Latency**: a /JQ of 4 parameters on the bus; a command needs its fresh
   read (1 or 3 parameters) and the write within 3.5 s. Too slow on a busy
   LPB → commands refused "too slow"; measure.
-- **The passkey with a wrong value**: 404 as assumed, or something else?
 - **Units**: `°C`, `&deg;C`, `&#176;C`, and the mojibake (U+00C2 U+00B0 C) of the
   python-bsblan fixtures are all read as °C; an empty unit too.
 - **8820**: 0 off, 255 on (python-bsblan fixture); other non-zero values
@@ -185,6 +184,17 @@ up to date at the end of every milestone.
     403 status names the trusted IP addresses. M8: PPS setpoint on its own
     read-only role `room-setpoint` (probe). M9: documented that an unknown
     mode leaves the last known choice in the list.
+- **Approval nits (2026-10-19)**:
+  - M3 redone: each poll batch and each fresh read of a command get a
+    sequence number; a command's read replaces only the parameters of a
+    batch read before it; a batch read after the command (its write
+    included) stays (H20, H16 in `test/review.test.js`).
+  - Hot water: 1612 above the ceiling is refused with a message naming
+    1612 and the ceiling (no value can fit), not "range missing".
+  - Firmware source checked: a wrong passkey or an IP not trusted closes
+    the connection without answer, never a 404 (no 404 for a passkey
+    exists). The "unreachable" status and the docs give that hint; 403 is
+    about the credentials only; a real 404 asks "is it a BSB-LAN?".
 - **gladys_version >= 5.1.0** (as the sibling local modules); **category
   `climate`**, transport `local`.
 - **Template demo files** (devices, scenes, widgets, weather and their

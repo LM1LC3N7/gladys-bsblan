@@ -161,18 +161,19 @@ deux écritures (sinon « encore en cours »).
   leur dernière valeur. Nouvel essai après 30 s, 1, 2 puis 5 minutes, jamais
   plus vite que l'intervalle.
 - **Identifiants refusés** (HTTP 401 ou 403) : l'intégration s'arrête et le
-  dit (un 403 peut aussi venir de l'adresse IP de Gladys absente des
-  adresses de confiance de BSB-LAN) ; nouveaux essais après 15 min, 1 h, 6 h puis toutes les 24 h, jamais
+  dit ; nouveaux essais après 15 min, 1 h, 6 h puis toutes les 24 h, jamais
   en boucle, même après un redémarrage (l'arrêt est gardé dans `/data`).
   Enregistrer d'autres identifiants ou appuyer sur « Tester la connexion »
   réessaie tout de suite.
 - **BSB-LAN occupé ou en erreur** (HTTP 429 ou 5xx) : pause de 1 minute à
   6 heures (selon `Retry-After`), gardée dans `/data`, pour les lectures
   comme pour les commandes.
-- **Clé de passe fausse** : BSB-LAN devrait répondre « introuvable » (HTTP
-  404), et l'écran de configuration le dit alors ; **à vérifier** sur un
-  vrai adaptateur (il peut aussi répondre autrement : la lecture échoue
-  alors comme un adaptateur injoignable).
+- **Passkey fausse, ou IP de Gladys absente des adresses de confiance** :
+  d'après la source du micrologiciel, BSB-LAN ferme alors la connexion sans
+  rien répondre (jamais de 404). L'intégration ne peut pas le distinguer
+  d'un adaptateur injoignable : le statut « injoignable » le rappelle.
+  Vérifiez la passkey et, si BSB-LAN limite les adresses autorisées, ajoutez
+  celle de Gladys.
 - **Micrologiciel trop ancien** (sans `/JV`) : non pris en charge, comme
   python-bsblan ; nouvel essai toutes les 30 minutes.
 - **Régulateur en °F** : ses températures ne sont pas affichées (les

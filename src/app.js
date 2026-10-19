@@ -144,8 +144,10 @@ export class BsbLanApp {
     this.quietUntil = -Infinity;
     /** `${mac}:${role}` -> { from, expected, moved, until }: a command sent, not seen yet. */
     this.guards = new Map();
-    /** role -> when a command last re-read its values (a poll started before keeps them). */
-    this.refreshedAt = new Map();
+    /** Increases at every read of parameters (a poll batch, a command's fresh read). */
+    this.readSeq = 0;
+    /** id -> { seq, entry }: the last fresh read of a command, per parameter. */
+    this.freshReads = new Map();
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -398,7 +400,6 @@ export class BsbLanApp {
 
   async read(adapter, generation) {
     const { client } = adapter;
-    const startedAt = this.now();
     const info = adapterOf(await client.info());
     if (!info?.mac) {
       throw unsupported('noMac');
@@ -410,6 +411,7 @@ export class BsbLanApp {
       adapter.apiVersion = undefined;
       adapter.model = undefined;
       adapter.mac = undefined;
+      this.freshReads.clear();
     }
     if (adapter.apiVersion === undefined) {
       let version;
@@ -433,29 +435,37 @@ export class BsbLanApp {
     // A few parameters per request: the Gate frees between them, so a
     // command never waits for a whole poll.
     const merged = {};
+    /** id -> the sequence number of the batch that read it. */
+    const readAt = new Map();
     for (const batch of chunks(ids, LIMITS.parametersPerRead)) {
       const answer = await client.query(batch);
       if (generation !== this.generation) {
         return;
       }
+      const seq = ++this.readSeq;
       for (const id of batch) {
+        readAt.set(id, seq);
         if (Object.hasOwn(answer, id)) {
           merged[id] = answer[id];
         }
       }
     }
-    const values = decode(info.bus, merged);
-    // A command re-read some values while this poll ran: its read is newer
-    // than what this poll asked before it, never overwritten by it.
-    if (adapter.values && adapter.mac === info.mac) {
-      for (const [role, at] of this.refreshedAt) {
-        if (at >= startedAt) {
-          for (const key of COMMAND_VALUES[role]) {
-            values[key] = adapter.values[key];
+    // A command re-read a parameter after the batch of this poll that read
+    // it (the Gate lets a command pass between two batches): the command's
+    // read is newer and replaces that parameter only. A batch read after
+    // the command (its write included) is newer and stays.
+    if (adapter.mac === info.mac) {
+      for (const [id, fresh] of this.freshReads) {
+        if (readAt.has(id) && fresh.seq > readAt.get(id)) {
+          if (fresh.entry === undefined) {
+            delete merged[id];
+          } else {
+            merged[id] = fresh.entry;
           }
         }
       }
     }
+    const values = decode(info.bus, merged);
     adapter.model ??= identificationOf(merged);
     adapter.info = info;
     adapter.mac = info.mac;
@@ -981,7 +991,10 @@ export class BsbLanApp {
     for (const key of COMMAND_VALUES[role]) {
       adapter.values[key] = fresh[key];
     }
-    this.refreshedAt.set(role, this.now());
+    const seq = ++this.readSeq;
+    for (const id of ids) {
+      this.freshReads.set(id, { seq, entry: picked[id] });
+    }
     this.observe(mac, adapter.values);
     // Shown in the background: the ack never waits for Gladys.
     this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
@@ -1085,6 +1098,10 @@ export class BsbLanApp {
     // never above the ceiling.
     const low = Math.max(SETPOINT_LIMITS.dhw.min, dhwSetpointReduced);
     const high = Math.min(SETPOINT_LIMITS.dhw.max, dhwMax, this.config.dhwCap);
+    if (dhwSetpointReduced > this.config.dhwCap) {
+      // 1610 can never go below 1612: no setpoint fits under the ceiling.
+      throw this.refusal(ERRORS.reducedAboveCap(dhwSetpointReduced, this.config.dhwCap));
+    }
     if (low > high) {
       throw this.refusal(ERRORS.missingValue);
     }

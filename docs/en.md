@@ -153,15 +153,16 @@ between two writes (otherwise "still running").
   last one. Retried after 30 s, 1, 2 then 5 minutes, never faster than the
   interval.
 - **Credentials refused** (HTTP 401 or 403): the integration stops and says
-  so (a 403 may also mean the IP address of Gladys is not among the trusted
-  addresses of BSB-LAN); next tries after 15 min, 1 h, 6 h then every 24 h, never in a loop,
+  so; next tries after 15 min, 1 h, 6 h then every 24 h, never in a loop,
   even after a restart (the stop is kept in `/data`). Saving other
   credentials or pressing "Test the connection" tries at once.
 - **BSB-LAN busy or failing** (HTTP 429 or 5xx): a pause of 1 minute to 6
   hours (from `Retry-After`), kept in `/data`, for reads and commands alike.
-- **Wrong passkey**: BSB-LAN should answer "not found" (HTTP 404), and the
-  configuration screen then says so; **to be checked** on a real adapter
-  (it may answer otherwise: the read then fails as an unreachable adapter).
+- **Wrong passkey, or Gladys's IP not among the trusted addresses**: from
+  the firmware source, BSB-LAN then closes the connection without any
+  answer (never a 404). The integration cannot tell it from an unreachable
+  adapter: the "unreachable" status reminds it. Check the passkey and, if
+  BSB-LAN limits the allowed addresses, add the one of Gladys.
 - **Firmware too old** (no `/JV`): not supported, as python-bsblan; read
   again every 30 minutes.
 - **Controller in °F**: its temperatures are not shown (the features are in

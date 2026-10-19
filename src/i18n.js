@@ -134,13 +134,13 @@ export const T = {
     ]),
   unreachable: (address, reason, wait) =>
     both(
-      `Could not read BSB-LAN at ${address} (${reason}; next try in ${wait.en}). Check the address and that the adapter is on.`,
-      `Lecture de BSB-LAN ${address} impossible (${reason} ; nouvel essai dans ${wait.fr}). Vérifiez l'adresse et que l'adaptateur est allumé.`,
+      `Could not read BSB-LAN at ${address} (${reason}; next try in ${wait.en}). Check the address and that the adapter is on. BSB-LAN also closes the connection without answering on a wrong passkey, or when the IP address of Gladys is not among its trusted addresses.`,
+      `Lecture de BSB-LAN ${address} impossible (${reason} ; nouvel essai dans ${wait.fr}). Vérifiez l'adresse et que l'adaptateur est allumé. BSB-LAN ferme aussi la connexion sans répondre sur une passkey fausse, ou quand l'adresse IP de Gladys est absente de ses adresses de confiance.`,
     ),
   notFound: (address, wait) =>
     both(
-      `BSB-LAN at ${address} answers "not found" (HTTP 404): check the passkey (next try in ${wait.en}).`,
-      `BSB-LAN ${address} répond « introuvable » (HTTP 404) : vérifiez la clé de passe (nouvel essai dans ${wait.fr}).`,
+      `The device at ${address} answers "not found" (HTTP 404), which BSB-LAN does not: is it a BSB-LAN adapter? (next try in ${wait.en}).`,
+      `L'appareil ${address} répond « introuvable » (HTTP 404), ce que BSB-LAN ne fait pas : est-ce bien un adaptateur BSB-LAN ? (nouvel essai dans ${wait.fr}).`,
     ),
   authRefused: (wait) =>
     both(
@@ -149,8 +149,8 @@ export const T = {
     ),
   forbidden: (wait) =>
     both(
-      `BSB-LAN refused access (HTTP 403): wrong user name or password, or the IP address of Gladys is not among the addresses BSB-LAN trusts (its "Trusted IP addresses" setting). Next try in ${wait.en}; "Test the connection" tries now.`,
-      `BSB-LAN a refusé l'accès (HTTP 403) : identifiant ou mot de passe faux, ou l'adresse IP de Gladys ne fait pas partie des adresses autorisées par BSB-LAN (son réglage d'adresses IP de confiance). Nouvel essai dans ${wait.fr} ; « Tester la connexion » essaie tout de suite.`,
+      `BSB-LAN refused access (HTTP 403): wrong user name or password, check them and save. Next try in ${wait.en}; "Test the connection" tries now.`,
+      `BSB-LAN a refusé l'accès (HTTP 403) : identifiant ou mot de passe faux, vérifiez-les et enregistrez. Nouvel essai dans ${wait.fr} ; « Tester la connexion » essaie tout de suite.`,
     ),
   authNeeded: (wait) =>
     both(
@@ -222,6 +222,11 @@ export const ERRORS = {
     both(
       `The controller accepts this setpoint between ${min} and ${max} °C now: not sent.`,
       `Le régulateur accepte cette consigne entre ${min} et ${max} °C actuellement : non envoyée.`,
+    ),
+  reducedAboveCap: (reduced, cap) =>
+    both(
+      `The hot water reduced setpoint of the controller (1612, ${reduced} °C) is above the ceiling (${cap} °C): the hot water setpoint cannot go below it, so no value fits. Lower 1612 on the controller, or raise "Hot water ceiling". Not sent.`,
+      `La consigne réduite de l'eau chaude du régulateur (1612, ${reduced} °C) est au-dessus du plafond (${cap} °C) : la consigne d'eau chaude ne peut pas descendre en dessous, aucune valeur ne convient. Baissez 1612 sur le régulateur, ou relevez « Plafond de l'eau chaude ». Non envoyée.`,
     ),
   dhwCap: (cap) =>
     both(

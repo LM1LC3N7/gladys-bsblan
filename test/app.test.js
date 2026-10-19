@@ -617,15 +617,32 @@ test('BSB-LAN unreachable: status, badge, mode text; retried after 30 s, 1, 2, 5
   assert.ok(app.live);
 });
 
-test('a wrong passkey (404) is said', async (t) => {
+test('a wrong passkey closes the connection (firmware): the unreachable status hints at it', async (t) => {
   const bsb = fakeBsbLan({ passkey: 'good' });
   const { gladys } = await setup(t, {
     bsb,
     config: { address: HOST, passkey: 'bad' },
     create: false,
   });
-  assert.match(message(gladys).en, /HTTP 404\): check the passkey/);
+  assert.match(message(gladys).en, /impossible|Could not read BSB-LAN/);
+  assert.match(message(gladys).en, /wrong passkey, or when the IP address of Gladys/);
+  assert.match(message(gladys).fr, /passkey fausse, ou quand l'adresse IP de Gladys/);
+  assert.doesNotMatch(message(gladys).en, /404/);
   assert.doesNotMatch(JSON.stringify(gladys.fake.connectionStatuses), /bad|good/);
+});
+
+test('an IP address not trusted by BSB-LAN: the same hint', async (t) => {
+  const bsb = fakeBsbLan();
+  bsb.untrusted = true;
+  const { gladys } = await setup(t, { bsb, create: false });
+  assert.match(message(gladys).fr, /adresses de confiance/);
+});
+
+test('a real 404 is not a passkey matter: "is it a BSB-LAN?"', async (t) => {
+  const bsb = fakeBsbLan({ behave: () => ({ status: 404 }) });
+  const { gladys } = await setup(t, { bsb, create: false });
+  assert.match(message(gladys).en, /HTTP 404\), which BSB-LAN does not/);
+  assert.doesNotMatch(message(gladys).en, /passkey/);
 });
 
 test('a firmware without /JV is not supported, read again every 30 min', async (t) => {

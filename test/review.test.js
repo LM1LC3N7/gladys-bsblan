@@ -202,6 +202,35 @@ test('M3: a poll started before a command never republishes what the command re-
   assert.notEqual(s.gladys.fake.lastState(feature('mode')), 'comfort', 'never the older value');
 });
 
+test('M3 (H20): a poll batch read after the write is newer than the command and is shown', async (t) => {
+  let slow = false;
+  const bsb = fakeBsbLan({
+    behave: (request) =>
+      slow && request.endpoint === '/JQ' && request.ids.length === 4 ? { delay: 900 } : undefined,
+  });
+  const s = await setup(t, { bsb });
+  slow = true;
+  await s.advance(30 * SECOND + 300); // batch 1 (700, 710, 712, 714) in flight
+  const ack = await s.command('dhw-setpoint', 52, { wait: 1_500 });
+  assert.equal(ack.success, true);
+  await s.advance(3 * SECOND); // batch 3 (1600, 1610, …) is read after the write
+  const batch3 = bsb.requests.filter((r) => r.ids[0] === '1600').at(-1);
+  const write = bsb.requests.findLastIndex((r) => r.endpoint === '/JS');
+  assert.ok(bsb.requests.indexOf(batch3) > write, 'the batch came after the write');
+  assert.equal(s.gladys.fake.lastState(feature('dhw-setpoint')), 52, 'the newer value');
+});
+
+test('hot water: 1612 above the ceiling is named, not "no range"', async (t) => {
+  const s = await setup(t);
+  await s.app.configUpdated({ ...ALLOWED, dhw_max_temperature: 45 });
+  s.bsb.params[1612] = { ...s.bsb.params[1612], value: '48.0' };
+  const ack = await s.command('dhw-setpoint', 44);
+  assert.match(ack.error, /consigne réduite de l'eau chaude du régulateur \(1612, 48 °C\)/);
+  assert.match(ack.error, /au-dessus du plafond \(45 °C\)/);
+  assert.doesNotMatch(ack.error, /plage permise/);
+  assert.deepEqual(jsRequests(s.bsb), []);
+});
+
 test('M4: an unknown bus or a buswritable other than 1 refuses the commands', async (t) => {
   const s = await setup(t, { bsb: fakeBsbLan({ info: { ...bsbInfo(), buswritable: 2 } }) });
   assert.match((await s.command('mode', 'reduced')).error, /lecture seule/);
@@ -221,11 +250,14 @@ test('M5: the comfort setpoint never below the reduced setpoint (712)', async (t
   assert.deepEqual(jsRequests(s.bsb), []);
 });
 
-test('M7: HTTP 403 names the trusted IP addresses too', async (t) => {
+test('HTTP 403 is about the credentials only (the firmware closes the connection on an IP)', async (t) => {
   const bsb = fakeBsbLan({ behave: () => ({ status: 403 }) });
   const s = await setup(t, { bsb, create: false, config: { address: HOST } });
-  assert.match(s.gladys.fake.connectionStatus.message.fr, /adresse IP de Gladys/);
-  assert.match(s.gladys.fake.connectionStatus.message.en, /Trusted IP addresses/);
+  assert.match(
+    s.gladys.fake.connectionStatus.message.fr,
+    /HTTP 403\) : identifiant ou mot de passe/,
+  );
+  assert.doesNotMatch(s.gladys.fake.connectionStatus.message.en, /IP/);
 });
 
 test('M8: on a PPS bus the setpoint is a read-only feature', async (t) => {
