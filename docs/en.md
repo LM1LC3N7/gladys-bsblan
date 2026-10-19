@@ -1,61 +1,160 @@
-# Demo Devices Template
+# BSB-LAN for Gladys
 
-This is the user documentation of the integration. Gladys re-hosts this file
-and shows a permanent **Documentation** link to it in the Configuration screen
-(in the user's language, with English as the fallback) — it is when
-configuring that the user needs it most. Keep the short onboarding hints in
-the `section` blocks of the manifest `config_schema`; put the long
-step-by-step (screenshots, troubleshooting…) here.
+Shows your **boiler or heat pump with a Siemens controller** (ELCO, Brötje,
+Baxi, MHG, Atlantic, Thision…) in Gladys through the **BSB-LAN** adapter,
+wired to the BSB, LPB or PPS bus of the controller: no cloud, no account,
+straight on your network.
+
+> **Never tested with a real adapter.**
+> Not affiliated with the BSB-LAN project nor the manufacturers. It reads the
+> JSON API of BSB-LAN as the python-bsblan library (used by Home Assistant)
+> does.
+
+> **Security: BSB-LAN speaks plain http.** The passkey, the user name and
+> the password travel in clear on your local network. Keep the adapter on a
+> **trusted network**, never exposed to the Internet.
+
+## What you need
+
+- A BSB-LAN adapter (Arduino Due or ESP32 board) with a firmware that gives
+  its JSON-API version (`/JV`, 1.0 at least): recent BSB-LAN versions do.
+- Its IP address, preferably fixed (set it in your router).
+- For the commands: writing to the bus allowed in the configuration of
+  BSB-LAN.
 
 ## What you get
 
-Six demo devices show up after installation: a weather station (real data
-from Open-Meteo), a switch, a dimmable light, a smart plug with power
-metering, a motion sensor and a camera.
+One "Heating (BSB-LAN)" device per adapter, recognised by its MAC address
+(it stays the same when the IP address changes). Each feature appears only
+once the controller gives its value:
 
-## Configuration
+| Feature                    | Parameter | Content                                          |
+| -------------------------- | --------- | ------------------------------------------------ |
+| Heating mode               | 700       | A list (commands allowed only), see below        |
+| Heating mode (read)        | 700       | Text: the real mode, an unknown one included     |
+| Heating circuit status     | 8000      | Text of the controller ("Heating mode comfort"…) |
+| Comfort setpoint           | 710       | Thermostat, circuit 1, in °C (command)           |
+| Reduced setpoint           | 712       | In °C, read only                                 |
+| Room temperature           | 8740      | In °C                                            |
+| Outside temperature        | 8700      | In °C                                            |
+| Hot water mode             | 1600      | Text: off, on, eco                               |
+| Hot water setpoint         | 1610      | Water heater, in °C (command, capped)            |
+| Hot water reduced setpoint | 1612      | In °C, read only                                 |
+| Hot water temperature      | 8830      | In °C                                            |
+| Hot water pump running     | 8820      | 0 or 1                                           |
+| Energy brought in (kWh)    | 3113      | In kWh, a plain value (see below)                |
 
-1. Open the **Configuration** tab of the integration.
-2. Set the **latitude** and **longitude** the demo weather station should
-   observe (they default to Paris), and pick your temperature unit.
-   The **refresh interval** sets how often the weather station and the
-   plug's power are read: every 5 minutes by default, every minute at most.
-3. Save: the devices appear in the **Discovery** tab, ready to be added.
+The outside and water temperatures and the read-only setpoints are
+"probes": they do not count as the room temperature in Gladys. Read every 30
+seconds by default (10 s to 10 min, configurable), a few parameters per
+request (the adapter queries the bus one parameter after the other).
 
-The **Prefer the local connection** toggle drives the demo plug: it reports
-the channel it actually uses as a badge (local or cloud), with an orange dot
-when it runs degraded (local refused, cloud fallback).
+On a **PPS** bus (simple room thermostats), the integration reads the mode,
+the setpoint, the room temperature and the outside temperature, **read
+only** in this version.
 
-## Actions
+### Energy: a plain value, not a billed meter
 
-- **Test the weather provider** — performs a live request to Open-Meteo and
-  shows the current temperature and humidity under the button.
-- **Identify a device** — pick one of your devices in the list and it will
-  signal itself (the demo light "blinks" in the logs).
+Parameter 3113 ("energy brought in") is a text of the controller ("7968
+kWh") whose resolution and resets are not documented. Gladys would count
+every rise of an index as billed consumption: the value is therefore
+published as a **plain sensor** (the unit in its name), never as an energy
+index. It does not show in the energy monitoring of Gladys.
 
-## Scenes
+## Setup
 
-The integration adds its own cards to the scene editor (Gladys 5.1 or
-later), under the **Integrations** category:
+1. Install the integration from the Gladys store.
+2. In its configuration, enter the **IP address of BSB-LAN** (port 80 by
+   default; add `:port` if it differs).
+3. If your BSB-LAN has them, enter the **passkey** ("Passkey", the first
+   part of its URLs, without the slashes), and the **user name** and
+   **password** of its HTTP authentication. Both secret fields are kept by
+   Gladys in its database, never shown again, sent only to the adapter.
+4. Save, then add the device from the **Discovery** tab.
 
-- **Motion detected** (trigger) — starts the scene when a demo motion sensor
-  sees something move. Optionally pick the sensor and what moved (person,
-  animal); left empty, any detection matches. The following actions can
-  read what moved with `{{triggerEvent.data.target}}`.
-- **Identify a device** (action) — makes the chosen device signal itself.
-  It returns whether the device could signal itself, so the following
-  actions can depend on it.
+The **Test the connection** button reads the adapter once (at most every 10
+seconds), even after refused credentials.
 
-## Dashboard
+## Commands (off by default)
 
-Add the **Demo status** widget to a dashboard: it shows the live
-temperature of the weather station and the power of the office plug, the
-connection the plug currently uses (orange when degraded) and the observed
-location. Its **Identify the light** button makes the demo light signal
-itself.
+While **Allow the commands** is off, every command is refused. Once on,
+Gladys may change:
 
-## Troubleshooting
+- the **heating mode** of circuit 1: automatic (time program), comfort,
+  reduced, protection (frost protection);
+- the **comfort setpoint** of circuit 1, to a tenth of a degree, between the
+  protection setpoint (714) and the comfort setpoint max (716) the
+  controller gives, and always within 5–35 °C;
+- the **hot water setpoint** (1610), in whole degrees, between the reduced
+  setpoint (1612) and the maximum of the controller (1614), up to the
+  **ceiling**.
 
-The integration logs everything it does: check the integration logs from the
-Gladys UI (or `docker logs` on the host) with `LOG_LEVEL=debug` for the full
-detail.
+BSB-LAN must also allow writing to the bus: otherwise the configuration
+screen says so and the commands are refused.
+
+### Hot water ceiling: 55 °C by default
+
+Water at 60 °C scalds in seconds. Gladys therefore **never sets the hot
+water above 55 °C** by default. The **Hot water ceiling** setting changes it
+from 40 to 60 °C; it is **never possible to go above 60 °C**, whatever is
+typed (even though the controller often accepts 65 °C). A setpoint above the
+ceiling is refused on arrival, never sent; the ceiling is checked again
+after the fresh read and right before the request leaves (a ceiling lowered
+during a command stops it). The reduced setpoints, the anti-legionella
+function and the time programs are never changed.
+
+### What Gladys never does
+
+- **Leave an unknown mode** of the controller: the command is refused, the
+  controller keeps control.
+- Offer a switch: the mode is a **list**, the setpoints are thermostats; a
+  "turn everything off" (Gladys, Google Home, Alexa, HomeKit) never reaches
+  the heating. A scene can change the mode or a setpoint, only through an
+  explicit action and if the commands are allowed. Beware: the AI chat of
+  Gladys (MCP) can create and run such a scene.
+
+### How a command leaves
+
+Before each command, the integration **reads again** the current value and
+the range the controller allows, and decides on that read only; no other
+request runs between that read and the write, and the option (and the
+ceiling) is checked again right before the request leaves. A missing value
+or range refuses the command. A value already in place is not sent again. A
+command that cannot leave within 3.5 seconds is refused unsent; Gladys gets
+its answer within its 5 seconds. BSB-LAN confirms a write with a status 1; a
+status 2 (read-only parameter) gives "BSB-LAN refused the command"; without
+a clear confirmation (silence, dropped connection, 5xx error, status 0),
+Gladys shows "Command sent, without confirmation": check the value, read
+again 5 and 20 seconds later. One command at a time, and at least 3 seconds
+between two writes (otherwise "still running").
+
+## Errors and limits
+
+- **BSB-LAN unreachable**: "Heating mode (read)" shows "BSB-LAN
+  unreachable", the device turns unreachable, the other values keep their
+  last one. Retried after 30 s, 1, 2 then 5 minutes, never faster than the
+  interval.
+- **Credentials refused** (HTTP 401 or 403): the integration stops and says
+  so; next tries after 15 min, 1 h, 6 h then every 24 h, never in a loop,
+  even after a restart (the stop is kept in `/data`). Saving other
+  credentials or pressing "Test the connection" tries at once.
+- **BSB-LAN busy or failing** (HTTP 429 or 5xx): a pause of 1 minute to 6
+  hours (from `Retry-After`), kept in `/data`, for reads and commands alike.
+- **Wrong passkey**: BSB-LAN answers "not found" (HTTP 404), the
+  configuration screen says so.
+- **Firmware too old** (no `/JV`): not supported, as python-bsblan; read
+  again every 30 minutes.
+- **Controller in °F**: its temperatures are not shown (the features are in
+  °C).
+- **One adapter** per integration, **heating circuit 1** only.
+- Not yet: circuit 2, cooling, time programs, commands on a PPS bus, the hot
+  water mode as a command.
+- The logs never hold the passkey, the user name, the password nor the
+  answers of BSB-LAN; `/data` keeps only the pause and the stop, never a
+  secret.
+
+## Credits
+
+Ported from [python-bsblan](https://github.com/liudger/python-bsblan)
+(Willem-Jan L. van Rootselaar and contributors, MIT, version 6.1.10), the
+library of Home Assistant's BSB-LAN integration. Apache-2.0 license.

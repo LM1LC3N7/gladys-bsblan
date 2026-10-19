@@ -1,45 +1,189 @@
 // -----------------------------------------------------------------------------
-// Integration configuration.
-//
-// The configuration is filled in by the user in Gladys, from the `config_schema`
-// declared in `gladys-assistant-integration.json`. The SDK fetches it for you
-// (`gladys.getConfig()`) and notifies you of every change through
-// `gladys.onConfigUpdated()`.
-//
-// This module only provides defaults and normalizes the received object, so the
-// rest of the code never has to deal with `undefined`.
+// The configuration: the manifest `config_schema` values, normalized so the
+// rest of the code never deals with strings typed in a form. The passkey and
+// the password are kept here only: never logged, never in /data, never in a
+// status or an error.
 // -----------------------------------------------------------------------------
 
-// Defaults: they MUST stay consistent with the `default` values declared in the
-// `config_schema` of the manifest.
+import { DEFAULT_PORT, DHW_CAP, POLL_INTERVAL } from './constants.js';
+
+/** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
 export const DEFAULT_CONFIG = {
-  latitude: 48.8566, // Paris
-  longitude: 2.3522,
-  unit: 'celsius', // 'celsius' | 'fahrenheit'
-  // Seconds between two reads of the polled sensors. Gladys polls at most once
-  // a minute: slower intervals are applied by skipping polls (see
-  // createPoller in src/devices/index.js).
-  poll_frequency: 300,
-  // Reserved key (NOT in config_schema): because the manifest declares both
-  // 'local' and 'cloud' in its `transports` field, Gladys shows a standard
-  // "Prefer the local connection" toggle and sends the user's choice here.
-  // Read-only for the integration; defaults to true.
-  GLADYS_PREFER_LOCAL: true,
+  address: '',
+  allow_commands: false,
+  dhw_max_temperature: DHW_CAP.default,
+  poll_interval: POLL_INTERVAL.default,
+  language: 'fr',
 };
 
+const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+/** The BSB-LAN passkey: a short word of the adapter's configuration, sent in the path. */
+const PASSKEY = /^[A-Za-z0-9_-]{1,64}$/;
+/** What an HTTP basic authentication header carries: printable ASCII, no colon in the user. */
+const USER = /^[\x21-\x39\x3b-\x7e]{1,64}$/;
+const PASSWORD = /^[\x20-\x7e]{1,128}$/;
+
 /**
- * Merge the user config with the defaults.
- * @param {Record<string, unknown>} raw config returned by the SDK
+ * The address of the adapter typed by the user: an IPv4 address or a host
+ * name, with an optional port (80 by default), with or without `http://`.
+ * https, credentials, a path (a pasted passkey), a query are refused: said
+ * to the user rather than failing in silence.
+ * @returns {{ host: string, port: number } | { error: string }}
  */
+export function parseAddress(raw) {
+  const text = String(raw ?? '').trim();
+  if (text === '') {
+    return { error: 'empty' };
+  }
+  if (text.length > 260) {
+    return { error: 'invalid' };
+  }
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(text)?.[1]?.toLowerCase();
+  if (scheme === 'https') {
+    return { error: 'https' };
+  }
+  if (scheme && scheme !== 'http') {
+    return { error: 'invalid' };
+  }
+  const rest = scheme ? text.slice(scheme.length + 3) : text;
+  const match = /^([^/?#@]*)(@)?([^/?#]*)([/?#].*)?$/.exec(rest);
+  if (!match) {
+    return { error: 'invalid' };
+  }
+  if (match[2]) {
+    return { error: 'credentials' };
+  }
+  const path = match[4] ?? '';
+  if (path !== '' && path !== '/') {
+    return { error: 'path' };
+  }
+  const authority = match[1].toLowerCase();
+  const hostPort = /^([^:]+)(?::(\d{1,5}))?$/.exec(authority);
+  if (!hostPort) {
+    return { error: 'invalid' };
+  }
+  const host = hostPort[1];
+  const port = hostPort[2] === undefined ? DEFAULT_PORT : Number(hostPort[2]);
+  if (port < 1 || port > 65535 || host.length > 253) {
+    return { error: 'invalid' };
+  }
+  if (IPV4.test(host)) {
+    return { host, port };
+  }
+  if (/^[\d.]+$/.test(host) || !host.split('.').every((label) => LABEL.test(label))) {
+    return { error: 'invalid' };
+  }
+  return { host, port };
+}
+
+export const addressKey = ({ host, port }) => (port === DEFAULT_PORT ? host : `${host}:${port}`);
+
+/** Only `true` (or the text "true") allows: anything else, missing included, refuses. */
+const strictTrue = (value) => value === true || value === 'true';
+
+/** A number typed in the form: a finite number, or undefined ('' and null are not 0). */
+function numberOf(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : undefined;
+  }
+  if (typeof value === 'string' && /^\s*-?\d{1,6}(\.\d{1,6})?\s*$/.test(value)) {
+    return Number(value);
+  }
+  return undefined;
+}
+
+/**
+ * The hot water ceiling: whole degrees within DHW_CAP, else the default
+ * (55 °C). Never above DHW_CAP.max, whatever was typed.
+ */
+export function dhwCapOf(value) {
+  const number = numberOf(value);
+  if (number === undefined) {
+    return DHW_CAP.default;
+  }
+  return Math.min(DHW_CAP.max, Math.max(DHW_CAP.min, Math.floor(number)));
+}
+
+const text = (value) => (typeof value === 'string' ? value.trim() : '');
+
+/**
+ * An invalid address as the status may show it: without what could be a
+ * secret (credentials before an `@`, a passkey in the path, a query).
+ */
+function shown(typed) {
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\//i.exec(typed)?.[0] ?? '';
+  let rest = typed.slice(scheme.length);
+  const cut = rest.search(/[/?#]/);
+  const tail = cut === -1 ? '' : '/…';
+  if (cut !== -1) {
+    rest = rest.slice(0, cut);
+  }
+  const at = rest.lastIndexOf('@');
+  if (at !== -1) {
+    rest = `…@${rest.slice(at + 1)}`;
+  }
+  return `${scheme}${rest}${tail}`.slice(0, 100);
+}
+
+/** The optional fields, without a default in the manifest (two of them are secrets). */
+const OPTIONAL = { passkey: '', username: '', password: '' };
+
 export function normalizeConfig(raw = {}) {
+  const c = { ...DEFAULT_CONFIG, ...OPTIONAL };
+  for (const [key, value] of Object.entries(raw ?? {})) {
+    if (Object.hasOwn(c, key) && value != null) {
+      c[key] = value;
+    }
+  }
+  const typed = text(c.address);
+  const parsed = parseAddress(typed);
+  const address = parsed.error ? undefined : parsed;
+  // A passkey pasted with its slashes ("/1234/") is the same passkey.
+  const passkey = text(c.passkey).replace(/^\/+|\/+$/g, '');
+  const username = text(c.username);
+  const password = typeof c.password === 'string' ? c.password : '';
+  let problem;
+  if (parsed.error) {
+    problem = parsed.error;
+  } else if (passkey !== '' && !PASSKEY.test(passkey)) {
+    problem = 'passkey';
+  } else if (username === '' && password !== '') {
+    problem = 'passwordWithoutUser';
+  } else if (username !== '' && password === '') {
+    problem = 'userWithoutPassword';
+  } else if (
+    (username !== '' && !USER.test(username)) ||
+    (password !== '' && !PASSWORD.test(password))
+  ) {
+    problem = 'credentialsInvalid';
+  }
+  const interval = numberOf(c.poll_interval);
   return {
-    ...DEFAULT_CONFIG,
-    ...raw,
-    // Force the types: config may arrive as strings from a form.
-    latitude: Number(raw.latitude ?? DEFAULT_CONFIG.latitude),
-    longitude: Number(raw.longitude ?? DEFAULT_CONFIG.longitude),
-    poll_frequency: Number(raw.poll_frequency ?? DEFAULT_CONFIG.poll_frequency),
-    // The preference is a boolean; anything but an explicit false means true.
-    GLADYS_PREFER_LOCAL: raw.GLADYS_PREFER_LOCAL !== false,
+    address: problem ? undefined : address,
+    /** Why the configuration cannot be used (shown in the status), else undefined. */
+    problem,
+    /** What was typed as address, when it is not valid (never the passkey nor a password). */
+    invalid: parsed.error && typed !== '' ? shown(typed) : undefined,
+    passkey,
+    username,
+    password,
+    allowCommands: strictTrue(c.allow_commands),
+    dhwCap: dhwCapOf(c.dhw_max_temperature),
+    pollInterval:
+      interval === undefined
+        ? POLL_INTERVAL.default
+        : Math.min(POLL_INTERVAL.max, Math.max(POLL_INTERVAL.min, Math.round(interval))),
+    language: c.language === 'en' ? 'en' : 'fr',
   };
 }
+
+/** What a restart depends on: the adapter and how to reach it (compared in memory only). */
+export const connectionKey = (config) =>
+  JSON.stringify([
+    config.address ?? null,
+    config.problem ?? null,
+    config.passkey,
+    config.username,
+    config.password,
+  ]);
