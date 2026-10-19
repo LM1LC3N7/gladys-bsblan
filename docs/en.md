@@ -51,7 +51,8 @@ request (the adapter queries the bus one parameter after the other).
 
 On a **PPS** bus (simple room thermostats), the integration reads the mode,
 the setpoint, the room temperature and the outside temperature, **read
-only** in this version.
+only** in this version: the setpoint is then a plain "Room setpoint (read)"
+probe (parameter 15004), never a thermostat Gladys could set.
 
 ### Energy: a plain value, not a billed meter
 
@@ -82,15 +83,18 @@ Gladys may change:
 
 - the **heating mode** of circuit 1: automatic (time program), comfort,
   reduced, protection (frost protection);
-- the **comfort setpoint** of circuit 1, to a tenth of a degree, between the
-  protection setpoint (714) and the comfort setpoint max (716) the
-  controller gives, and always within 5–35 °C;
+- the **comfort setpoint** of circuit 1, to a tenth of a degree, never
+  below the reduced setpoint (712) nor the protection setpoint (714), never
+  above the comfort setpoint max (716) the controller gives, and always
+  within 5–35 °C;
 - the **hot water setpoint** (1610), in whole degrees, between the reduced
   setpoint (1612) and the maximum of the controller (1614), up to the
   **ceiling**.
 
-BSB-LAN must also allow writing to the bus: otherwise the configuration
-screen says so and the commands are refused.
+BSB-LAN must also allow writing to the bus, and name its bus BSB or LPB:
+otherwise the configuration screen says so and the commands are refused.
+Writing counts as allowed only when BSB-LAN says nothing (older firmwares)
+or exactly 1.
 
 ### Hot water ceiling: 55 °C by default
 
@@ -103,10 +107,21 @@ after the fresh read and right before the request leaves (a ceiling lowered
 during a command stops it). The reduced setpoints, the anti-legionella
 function and the time programs are never changed.
 
+What the ceiling does not do:
+
+- **lowering the ceiling does not lower a setpoint already higher** in the
+  controller (set on the boiler, or earlier): it only limits what Gladys
+  sends. Lower it yourself if needed;
+- the **anti-legionella function** of the controller (1640 to 1648) heats
+  the water to its own setpoint, often 60 °C or more, above the ceiling:
+  Gladys neither sets it nor prevents it.
+
 ### What Gladys never does
 
 - **Leave an unknown mode** of the controller: the command is refused, the
-  controller keeps control.
+  controller keeps control. The **"Heating mode" list then keeps the last
+  known choice** (an unknown mode is not in it): look at "Heating mode
+  (read)", which always shows the real mode.
 - Offer a switch: the mode is a **list**, the setpoints are thermostats; a
   "turn everything off" (Gladys, Google Home, Alexa, HomeKit) never reaches
   the heating. A scene can change the mode or a setpoint, only through an
@@ -115,8 +130,11 @@ function and the time programs are never changed.
 
 ### How a command leaves
 
-Before each command, the integration **reads again** the current value and
-the range the controller allows, and decides on that read only; no other
+Before each command, the integration first reads the adapter again
+(`/JI`): it must have the MAC address of the device, a BSB or LPB bus and
+writing allowed, otherwise nothing is sent (another adapter that took the
+IP address is never commanded). Then it **reads again** the current value
+and the range the controller allows, and decides on that read only; no other
 request runs between that read and the write, and the option (and the
 ceiling) is checked again right before the request leaves. A missing value
 or range refuses the command. A value already in place is not sent again. A
@@ -135,13 +153,15 @@ between two writes (otherwise "still running").
   last one. Retried after 30 s, 1, 2 then 5 minutes, never faster than the
   interval.
 - **Credentials refused** (HTTP 401 or 403): the integration stops and says
-  so; next tries after 15 min, 1 h, 6 h then every 24 h, never in a loop,
+  so (a 403 may also mean the IP address of Gladys is not among the trusted
+  addresses of BSB-LAN); next tries after 15 min, 1 h, 6 h then every 24 h, never in a loop,
   even after a restart (the stop is kept in `/data`). Saving other
   credentials or pressing "Test the connection" tries at once.
 - **BSB-LAN busy or failing** (HTTP 429 or 5xx): a pause of 1 minute to 6
   hours (from `Retry-After`), kept in `/data`, for reads and commands alike.
-- **Wrong passkey**: BSB-LAN answers "not found" (HTTP 404), the
-  configuration screen says so.
+- **Wrong passkey**: BSB-LAN should answer "not found" (HTTP 404), and the
+  configuration screen then says so; **to be checked** on a real adapter
+  (it may answer otherwise: the read then fails as an unreachable adapter).
 - **Firmware too old** (no `/JV`): not supported, as python-bsblan; read
   again every 30 minutes.
 - **Controller in °F**: its temperatures are not shown (the features are in

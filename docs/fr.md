@@ -53,7 +53,9 @@ paramètre après l'autre).
 
 Sur un bus **PPS** (thermostats d'ambiance simples), l'intégration lit le
 mode, la consigne, la température de la pièce et la température extérieure,
-**en lecture seule** dans cette version.
+**en lecture seule** dans cette version : la consigne y est une simple
+sonde « Consigne de la pièce (lue) » (paramètre 15004), jamais un
+thermostat que Gladys pourrait régler.
 
 ### Énergie : une simple valeur, pas un compteur facturé
 
@@ -86,14 +88,17 @@ est refusée. Activée, Gladys peut changer :
 
 - le **mode de chauffage** du circuit 1 : automatique (programme horaire),
   confort, réduit, protection (hors-gel) ;
-- la **consigne confort** du circuit 1, au dixième de degré, entre la
-  consigne de protection (714) et la consigne confort maximale (716) que le
-  régulateur donne, et toujours entre 5 et 35 °C ;
+- la **consigne confort** du circuit 1, au dixième de degré, jamais sous la
+  consigne réduite (712) ni la consigne de protection (714), jamais
+  au-dessus de la consigne confort maximale (716) que le régulateur donne,
+  et toujours entre 5 et 35 °C ;
 - la **consigne d'eau chaude** (1610), en degrés entiers, entre la consigne
   réduite (1612) et le maximum du régulateur (1614), jusqu'au **plafond**.
 
-BSB-LAN doit aussi autoriser l'écriture sur le bus : sinon l'écran de
-configuration l'indique et les commandes sont refusées.
+BSB-LAN doit aussi autoriser l'écriture sur le bus, et nommer son bus BSB
+ou LPB : sinon l'écran de configuration l'indique et les commandes sont
+refusées. L'écriture n'est tenue pour autorisée que si BSB-LAN ne dit rien
+(anciens micrologiciels) ou dit exactement 1.
 
 ### Plafond de l'eau chaude : 55 °C par défaut
 
@@ -107,10 +112,21 @@ envoyée ; le plafond est revérifié après la relecture et juste avant l'envoi
 la fonction anti-légionelles et les programmes horaires ne sont jamais
 modifiés.
 
+Ce que le plafond ne fait pas :
+
+- **abaisser le plafond ne baisse pas une consigne déjà plus haute** dans
+  le régulateur (réglée sur la chaudière, ou avant) : il limite seulement
+  ce que Gladys envoie. Baissez-la vous-même si besoin ;
+- la **fonction anti-légionelles** du régulateur (1640 à 1648) chauffe
+  l'eau à sa propre consigne, souvent 60 °C ou plus, au-dessus du plafond :
+  Gladys ne la règle pas et ne l'empêche pas.
+
 ### Ce que Gladys ne fait jamais
 
 - **Quitter un mode inconnu** du régulateur : la commande est refusée, le
-  régulateur garde la main.
+  régulateur garde la main. Dans ce cas la **liste « Mode de chauffage »
+  garde le dernier choix connu** (un mode inconnu n'y figure pas) : regardez
+  « Mode de chauffage (lu) », qui affiche toujours le mode réel.
 - Proposer un interrupteur : le mode est une **liste**, les consignes sont
   des thermostats ; un « éteins tout » (Gladys, Google Home, Alexa, HomeKit)
   ne touche pas le chauffage. Une scène peut changer le mode ou une
@@ -120,8 +136,12 @@ modifiés.
 
 ### Comment une commande part
 
-Avant chaque commande, l'intégration **relit** la valeur actuelle et la
-plage permise par le régulateur, et décide sur cette lecture seule ; aucune
+Avant chaque commande, l'intégration relit d'abord l'adaptateur (`/JI`) :
+il doit avoir la même adresse MAC que l'appareil, un bus BSB ou LPB et
+l'écriture autorisée, sinon rien n'est envoyé (un autre adaptateur qui a
+pris l'adresse IP n'est jamais commandé). Puis elle **relit** la valeur
+actuelle et la plage permise par le régulateur, et décide sur cette lecture
+seule ; aucune
 autre requête ne passe entre cette relecture et l'écriture, et l'option (et
 le plafond) est revérifiée juste avant l'envoi. Si une valeur ou la plage
 manque, la commande est refusée. Une valeur déjà en place n'est pas
@@ -141,15 +161,18 @@ deux écritures (sinon « encore en cours »).
   leur dernière valeur. Nouvel essai après 30 s, 1, 2 puis 5 minutes, jamais
   plus vite que l'intervalle.
 - **Identifiants refusés** (HTTP 401 ou 403) : l'intégration s'arrête et le
-  dit ; nouveaux essais après 15 min, 1 h, 6 h puis toutes les 24 h, jamais
+  dit (un 403 peut aussi venir de l'adresse IP de Gladys absente des
+  adresses de confiance de BSB-LAN) ; nouveaux essais après 15 min, 1 h, 6 h puis toutes les 24 h, jamais
   en boucle, même après un redémarrage (l'arrêt est gardé dans `/data`).
   Enregistrer d'autres identifiants ou appuyer sur « Tester la connexion »
   réessaie tout de suite.
 - **BSB-LAN occupé ou en erreur** (HTTP 429 ou 5xx) : pause de 1 minute à
   6 heures (selon `Retry-After`), gardée dans `/data`, pour les lectures
   comme pour les commandes.
-- **Clé de passe fausse** : BSB-LAN répond « introuvable » (HTTP 404),
-  l'écran de configuration le dit.
+- **Clé de passe fausse** : BSB-LAN devrait répondre « introuvable » (HTTP
+  404), et l'écran de configuration le dit alors ; **à vérifier** sur un
+  vrai adaptateur (il peut aussi répondre autrement : la lecture échoue
+  alors comme un adaptateur injoignable).
 - **Micrologiciel trop ancien** (sans `/JV`) : non pris en charge, comme
   python-bsblan ; nouvel essai toutes les 30 minutes.
 - **Régulateur en °F** : ses températures ne sont pas affichées (les

@@ -36,6 +36,7 @@ export const FEATURE_NAMES = {
   [FEATURES.HEATING_STATUS]: both('Heating circuit status', 'État du circuit de chauffage'),
   [FEATURES.HEATING_SETPOINT]: both('Comfort setpoint', 'Consigne confort'),
   [FEATURES.HEATING_SETPOINT_REDUCED]: both('Reduced setpoint', 'Consigne réduite'),
+  [FEATURES.PPS_SETPOINT]: both('Room setpoint (read)', 'Consigne de la pièce (lue)'),
   [FEATURES.TEMP_ROOM]: both('Room temperature', 'Température de la pièce'),
   [FEATURES.TEMP_OUTDOOR]: both('Outside temperature', 'Température extérieure'),
   [FEATURES.DHW_MODE]: both('Hot water mode', "Mode de l'eau chaude"),
@@ -146,6 +147,11 @@ export const T = {
       `BSB-LAN refused the user name or the password: check them and save. Next try in ${wait.en}; "Test the connection" tries now.`,
       `BSB-LAN a refusé l'identifiant ou le mot de passe : vérifiez-les et enregistrez. Nouvel essai dans ${wait.fr} ; « Tester la connexion » essaie tout de suite.`,
     ),
+  forbidden: (wait) =>
+    both(
+      `BSB-LAN refused access (HTTP 403): wrong user name or password, or the IP address of Gladys is not among the addresses BSB-LAN trusts (its "Trusted IP addresses" setting). Next try in ${wait.en}; "Test the connection" tries now.`,
+      `BSB-LAN a refusé l'accès (HTTP 403) : identifiant ou mot de passe faux, ou l'adresse IP de Gladys ne fait pas partie des adresses autorisées par BSB-LAN (son réglage d'adresses IP de confiance). Nouvel essai dans ${wait.fr} ; « Tester la connexion » essaie tout de suite.`,
+    ),
   authNeeded: (wait) =>
     both(
       `BSB-LAN asks for a user name and a password: fill them and save. Next try in ${wait.en}.`,
@@ -176,6 +182,10 @@ export const T = {
       'BSB-LAN est réglé en lecture seule (écriture sur le bus désactivée) : les commandes sont refusées.',
     ),
     pps: both('PPS bus: read only in this version.', 'Bus PPS : lecture seule dans cette version.'),
+    unknownBus: both(
+      'BSB-LAN did not name its bus (BSB or LPB): commands are refused.',
+      "BSB-LAN n'a pas nommé son bus (BSB ou LPB) : les commandes sont refusées.",
+    ),
     otherAdapter: both(
       'The created device belongs to another adapter (another MAC address): add the new device from the Discovery tab.',
       "L'appareil créé appartient à un autre adaptateur (autre adresse MAC) : ajoutez le nouvel appareil depuis l'onglet Découverte.",
@@ -225,6 +235,10 @@ export const ERRORS = {
   pps: both(
     'PPS bus: commands are not supported in this version: not sent.',
     'Bus PPS : les commandes ne sont pas prises en charge dans cette version : non envoyée.',
+  ),
+  unknownBus: both(
+    'BSB-LAN did not name its bus as BSB or LPB: not sent.',
+    "BSB-LAN n'a pas nommé son bus BSB ou LPB : non envoyée.",
   ),
   readOnlyBus: both(
     'BSB-LAN is set to read only (bus write access off in its configuration): not sent.',

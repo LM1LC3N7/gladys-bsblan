@@ -39,6 +39,17 @@ the notes of the version's GitHub Release.
   retried after 30 s to 5 minutes, never sooner than the interval.
 - A republished device never loses a feature; status, Discovery and badge
   sent again at every reconnection to Gladys.
+- Each command first reads `/JI` again: the same MAC, a BSB or LPB bus and
+  write access, or nothing is sent; the hot water one is bounded by the
+  ceiling in its range too; the comfort setpoint is never below the
+  reduced setpoint (712).
+- The last check of a command runs once the connection is up, right
+  before the first byte leaves.
+- Write access counts only when `/JI` gives nothing, 1, true or "1"; an
+  unknown bus refuses the commands; HTTP 403 also names the trusted IP
+  addresses of BSB-LAN; on a PPS bus the setpoint is a read-only feature.
+- A poll started before a command never republishes what the command
+  re-read; no follow-up read while the adapter does not answer.
 - "Test the connection" button; documentation in English and French;
   `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
 

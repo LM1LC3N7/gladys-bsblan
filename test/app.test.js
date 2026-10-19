@@ -63,7 +63,9 @@ async function setup(
   /** A command on a feature of the created device; resolves with the ack. */
   const command = async (role, value, { wait = 5 * SECOND } = {}) => {
     const d = gladys.fake.devices.find((x) => x.external_id === device());
-    const target = d.features.find((f) => f.external_id === feature(role));
+    const target = d.features.find((f) => f.external_id === feature(role)) ?? {
+      external_id: feature(role),
+    };
     let ack;
     gladys.fake.setValue(d, target, value).then((a) => (ack = a));
     await settle();
@@ -278,15 +280,19 @@ test('the commands are refused while not allowed, and on a read-only feature', a
   assert.deepEqual(bsb.writes(), []);
 });
 
-test('the mode: a fresh read of 700, then /JS 700; already so: nothing sent', async (t) => {
+test('the mode: /JI then a fresh read of 700, then /JS 700; already so: nothing sent', async (t) => {
   const bsb = fakeBsbLan();
   const { command } = await setup(t, { bsb, config: ALLOWED });
   const before = bsb.requests.length;
   const ack = await command('mode', 'automatic');
   assert.equal(ack.success, true);
-  const sent = bsb.requests.slice(before, before + 2);
-  assert.deepEqual(sent[0].ids, ['700']);
-  assert.deepEqual(sent[1].body, { Parameter: '700', Value: '1', Type: '1' });
+  const sent = bsb.requests.slice(before, before + 3);
+  assert.deepEqual(
+    sent.map((r) => r.endpoint),
+    ['/JI', '/JQ', '/JS'],
+  );
+  assert.deepEqual(sent[1].ids, ['700']);
+  assert.deepEqual(sent[2].body, { Parameter: '700', Value: '1', Type: '1' });
   assert.deepEqual(bsb.writes(), [['700', '1']]);
   await command('mode', 'automatic', { wait: 30 * SECOND });
   assert.equal((await command('mode', 'automatic')).success, true);
@@ -313,7 +319,8 @@ test('the comfort setpoint: bounded by 714–716 read just before, strict values
   await command('heating-setpoint', 21.5, { wait: 30 * SECOND });
   bsb.params[716] = { ...bsb.params[716], value: '24.0' };
   const high = await command('heating-setpoint', 26);
-  assert.match(high.error, /entre 10 et 24 °C actuellement/);
+  assert.match(high.error, /entre 17 et 24 °C actuellement/, 'never below 712 nor 714');
+  assert.match((await command('heating-setpoint', 16)).error, /entre 17 et 24/);
   for (const value of ['', null, 'abc', 21.55, '1e1', true]) {
     const ack = await command('heating-setpoint', value);
     assert.equal(ack.success, false, String(value));
@@ -331,10 +338,14 @@ test('hot water: 55 °C by default, refused on arrival above it, bounded by 1612
   assert.match(above.error, /plafonnée à 55 °C/);
   assert.equal((await command('dhw-setpoint', 61)).success, false, 'never above 60');
   assert.match((await command('dhw-setpoint', 50.5)).error, /multiple de 1 °C/);
-  assert.match((await command('dhw-setpoint', 39)).error, /entre 40 et 60 °C actuellement/);
+  assert.match(
+    (await command('dhw-setpoint', 39)).error,
+    /entre 40 et 55 °C actuellement/,
+    'the ceiling in the range shown',
+  );
   const before = bsb.requests.length;
   assert.equal((await command('dhw-setpoint', 52)).success, true);
-  assert.deepEqual(bsb.requests[before].ids, ['1610', '1612', '1614']);
+  assert.deepEqual(bsb.requests[before + 1].ids, ['1610', '1612', '1614']);
   assert.deepEqual(bsb.writes(), [['1610', '52']]);
   await command('dhw-setpoint', 52, { wait: 30 * SECOND });
   await app.configUpdated({ ...ALLOWED, dhw_max_temperature: 75 });
@@ -653,8 +664,13 @@ test('PPS: read only, commands refused', async (t) => {
   const { gladys, command } = await setup(t, { bsb, config: ALLOWED });
   const d = discovered(gladys);
   assert.ok(!roles(d).includes('mode'), 'no select on PPS');
+  assert.ok(!roles(d).includes('heating-setpoint'), 'no writable thermostat on PPS');
+  assert.ok(
+    d.features.every((f) => f.read_only),
+    'every PPS feature read only',
+  );
   assert.equal(last(gladys, 'operating-mode'), 'Automatique (programme horaire)');
-  assert.equal(last(gladys, 'heating-setpoint'), 20.5);
+  assert.equal(last(gladys, 'room-setpoint'), 20.5);
   assert.equal(last(gladys, 'temperature-room'), 19.8);
   assert.match(message(gladys).fr, /Bus PPS : lecture seule/);
   assert.match((await command('heating-setpoint', 21)).error, /Bus PPS/);

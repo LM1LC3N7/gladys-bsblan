@@ -33,6 +33,9 @@ function transportError(err, sent) {
  * @param {number} options.timeout ms for the whole exchange
  * @param {number} [options.sendWithin] ms to have the connection up, else not sent
  * @param {number} options.maxBytes body size cap
+ * @param {() => void} [options.beforeSend] called once connected, right before
+ *   the request is written; if it throws, nothing is sent and its error is
+ *   passed on with `beforeSend` set
  */
 export function httpRequest({
   method,
@@ -44,6 +47,7 @@ export function httpRequest({
   timeout,
   sendWithin,
   maxBytes,
+  beforeSend,
 }) {
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -82,11 +86,25 @@ export function httpRequest({
             Math.max(0, sendWithin),
           );
     const markConnected = () => {
-      if (!connected && !settled) {
-        connected = true;
-        clearTimeout(sendTimer);
-        req.end(body ?? '');
+      if (connected || settled) {
+        return;
       }
+      clearTimeout(sendTimer);
+      // The very last check of a command, once the connection is up and
+      // right before the first byte (headers included) is written: a refusal
+      // here destroys the socket, nothing sent.
+      if (beforeSend) {
+        try {
+          beforeSend();
+        } catch (err) {
+          err.beforeSend = true;
+          err.sent = false;
+          finish(err);
+          return;
+        }
+      }
+      connected = true;
+      req.end(body ?? '');
     };
 
     try {

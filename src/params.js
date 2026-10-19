@@ -208,7 +208,8 @@ export function decode(bus, answer) {
     if (mode) {
       values.mode = { code: mode.code, key: PPS_MODES[mode.code] };
     }
-    setTemperature('heatingSetpoint', P.PPS_SETPOINT, 0, 95);
+    // Read only on PPS (v1): its own feature, never the writable thermostat.
+    setTemperature('ppsSetpoint', P.PPS_SETPOINT, 0, 95);
     setTemperature('heatingMin', P.PPS_MIN, 0, 95);
     setTemperature('heatingMax', P.PPS_MAX, 0, 95);
     setTemperature('room', P.PPS_ROOM, -60, 120);
@@ -279,13 +280,17 @@ export function adapterOf(info) {
     .trim()
     .toUpperCase();
   const writable = field(info, 'buswritable');
+  const busName = ['BSB', 'LPB', 'PPS'].includes(busText) ? busText : 'unknown';
   return {
     mac: hex && hex !== '000000000000' && hex !== 'ffffffffffff' ? hex : undefined,
     version: cleanText(String(field(info, 'version') ?? ''))?.slice(0, 40),
     bus: busText === 'PPS' ? 'pps' : 'bsb',
-    busName: ['BSB', 'LPB', 'PPS'].includes(busText) ? busText : 'BSB',
-    // python-bsblan `is_bus_writable`: unknown counts as writable; 0 or false never.
-    writable: !(writable === 0 || writable === false || writable === '0'),
+    busName,
+    // Stricter than python-bsblan `is_bus_writable`: writable only when the
+    // field is absent (older firmwares) or exactly 1, true or "1".
+    writable: writable === undefined || writable === 1 || writable === true || writable === '1',
+    /** Commands only on a BSB or LPB bus (never PPS, never an unknown bus). */
+    commandBus: busName === 'BSB' || busName === 'LPB',
   };
 }
 

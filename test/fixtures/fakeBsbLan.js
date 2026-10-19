@@ -212,12 +212,24 @@ export function fakeBsbLan({
       body: options.body ? JSON.parse(options.body) : undefined,
       options,
     };
-    fake.requests.push(request);
     return new Promise((resolve, reject) => {
       if (fake.down) {
+        fake.requests.push(request);
         setTimeout(() => reject(new BsbError(CODES.UNREACHABLE)), 10);
         return;
       }
+      // As the real transport: once "connected", the last check of a command.
+      if (options.beforeSend) {
+        try {
+          options.beforeSend();
+        } catch (err) {
+          err.beforeSend = true;
+          err.sent = false;
+          reject(err);
+          return;
+        }
+      }
+      fake.requests.push(request);
       const override = fake.behave?.(request);
       const delay = override?.delay ?? fake.latency;
       if (override === 'timeout' || delay >= options.timeout) {

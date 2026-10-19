@@ -58,21 +58,21 @@ import {
   writeOutcome,
 } from './params.js';
 import { BsbClient } from './bsblan/client.js';
-import { CODES, isAuthRefused, isBusy, reasonOf } from './bsblan/errors.js';
+import { BsbError, CODES, isAuthRefused, isBusy, reasonOf } from './bsblan/errors.js';
 import { StatePublisher } from './publisher.js';
 import { memoryStore, normalizeMemory, serializeMemory } from './store.js';
 
 /** What the fresh read of a command asks, by role. */
 const COMMAND_PARAMS = {
   [F.MODE]: [P.MODE],
-  [F.HEATING_SETPOINT]: [P.COMFORT, P.PROTECTIVE, P.COMFORT_MAX],
+  [F.HEATING_SETPOINT]: [P.COMFORT, P.REDUCED, P.PROTECTIVE, P.COMFORT_MAX],
   [F.DHW_SETPOINT]: [P.DHW_NOMINAL, P.DHW_REDUCED, P.DHW_NOMINAL_MAX],
 };
 
 /** The decoded values the fresh read of a command refreshes, by role. */
 const COMMAND_VALUES = {
   [F.MODE]: ['mode'],
-  [F.HEATING_SETPOINT]: ['heatingSetpoint', 'heatingMin', 'heatingMax'],
+  [F.HEATING_SETPOINT]: ['heatingSetpoint', 'heatingSetpointReduced', 'heatingMin', 'heatingMax'],
   [F.DHW_SETPOINT]: ['dhwSetpoint', 'dhwSetpointReduced', 'dhwMax'],
 };
 
@@ -144,6 +144,8 @@ export class BsbLanApp {
     this.quietUntil = -Infinity;
     /** `${mac}:${role}` -> { from, expected, moved, until }: a command sent, not seen yet. */
     this.guards = new Map();
+    /** role -> when a command last re-read its values (a poll started before keeps them). */
+    this.refreshedAt = new Map();
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -386,13 +388,17 @@ export class BsbLanApp {
   /** Nothing requested: a pause or a stop holds. */
   halted(adapter, error, wait) {
     adapter.online = false;
+    if (adapter.error !== error) {
+      // The HTTP status that caused it (a 403) stays while the same stop holds.
+      adapter.status = undefined;
+    }
     adapter.error = error;
-    adapter.status = undefined;
     adapter.wait = wait;
   }
 
   async read(adapter, generation) {
     const { client } = adapter;
+    const startedAt = this.now();
     const info = adapterOf(await client.info());
     if (!info?.mac) {
       throw unsupported('noMac');
@@ -439,6 +445,17 @@ export class BsbLanApp {
       }
     }
     const values = decode(info.bus, merged);
+    // A command re-read some values while this poll ran: its read is newer
+    // than what this poll asked before it, never overwritten by it.
+    if (adapter.values && adapter.mac === info.mac) {
+      for (const [role, at] of this.refreshedAt) {
+        if (at >= startedAt) {
+          for (const key of COMMAND_VALUES[role]) {
+            values[key] = adapter.values[key];
+          }
+        }
+      }
+    }
     adapter.model ??= identificationOf(merged);
     adapter.info = info;
     adapter.mac = info.mac;
@@ -501,6 +518,7 @@ export class BsbLanApp {
     if (blocked) {
       adapter.error = blocked.kind;
       adapter.wait = blocked.wait;
+      adapter.status = err.status;
       adapter.failures += 1;
       return;
     }
@@ -686,6 +704,9 @@ export class BsbLanApp {
       const wait = age(adapter.wait ?? this.interval);
       switch (adapter.error) {
         case 'auth':
+          if (adapter.status === 403) {
+            return [false, T.forbidden(wait)];
+          }
           return [false, this.config.username ? T.authRefused(wait) : T.authNeeded(wait)];
         case 'busy':
           return [false, T.busy(wait)];
@@ -708,6 +729,8 @@ export class BsbLanApp {
     }
     if (adapter.info.bus === 'pps') {
       notes.push(T.notes.pps);
+    } else if (!adapter.info.commandBus) {
+      notes.push(T.notes.unknownBus);
     } else if (!adapter.info.writable) {
       notes.push(T.notes.readOnlyBus);
     }
@@ -857,18 +880,26 @@ export class BsbLanApp {
     if (generation !== this.generation || !this.live || mac !== this.adapter.mac) {
       throw this.refusal(ERRORS.unknownDevice);
     }
-    if (this.adapter.info.bus === 'pps') {
-      throw this.refusal(ERRORS.pps);
-    }
-    if (!this.adapter.info.writable) {
-      throw this.refusal(ERRORS.readOnlyBus);
-    }
+    this.checkAdapter(this.adapter.info);
     // The ceiling may have been lowered since the command arrived.
     if (
       role === F.DHW_SETPOINT &&
       (wanted.value > this.config.dhwCap || wanted.value > DHW_CAP.max)
     ) {
       throw this.refusal(ERRORS.dhwCap(this.config.dhwCap));
+    }
+  }
+
+  /** The bus and the write access of an adapter (/JI) allow a command. */
+  checkAdapter(info) {
+    if (info.bus === 'pps') {
+      throw this.refusal(ERRORS.pps);
+    }
+    if (!info.commandBus) {
+      throw this.refusal(ERRORS.unknownBus);
+    }
+    if (!info.writable) {
+      throw this.refusal(ERRORS.readOnlyBus);
     }
   }
 
@@ -910,12 +941,27 @@ export class BsbLanApp {
   /** The command inside its session (the Gate is held: `raw` requests). */
   async commandSession(raw, target, wanted, { generation, adapter, received, sendBy, readBy }) {
     const { mac, role } = target;
-    // The parameters just before acting, never the values in memory.
+    // First /JI, read now: the adapter answering at this address is the one
+    // of the device (its MAC), on a BSB or LPB bus, writable. Then the
+    // parameters, never the values in memory. Both within the read budget.
     const ids = COMMAND_PARAMS[role];
     let answer;
     try {
+      const info = adapterOf(await raw.info({ answerBy: readBy }));
+      if (!info?.mac || info.mac !== mac) {
+        throw this.refusal(ERRORS.unknownDevice);
+      }
+      if (generation !== this.generation || this.adapter !== adapter || !this.live) {
+        throw this.refusal(ERRORS.unknownDevice);
+      }
+      // What /JI says now is what the status shows.
+      adapter.info = info;
+      this.checkAdapter(info);
       answer = await raw.query(ids, { answerBy: readBy });
     } catch (err) {
+      if (!(err instanceof BsbError)) {
+        throw err;
+      }
       if (err.code === CODES.LATE) {
         throw this.refusal(ERRORS.tooSlow);
       }
@@ -935,6 +981,7 @@ export class BsbLanApp {
     for (const key of COMMAND_VALUES[role]) {
       adapter.values[key] = fresh[key];
     }
+    this.refreshedAt.set(role, this.now());
     this.observe(mac, adapter.values);
     // Shown in the background: the ack never waits for Gladys.
     this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
@@ -1012,11 +1059,12 @@ export class BsbLanApp {
       return;
     }
     if (role === F.HEATING_SETPOINT) {
-      const { heatingSetpoint, heatingMin, heatingMax } = fresh;
-      if ([heatingSetpoint, heatingMin, heatingMax].includes(undefined)) {
+      const { heatingSetpoint, heatingSetpointReduced, heatingMin, heatingMax } = fresh;
+      if ([heatingSetpoint, heatingSetpointReduced, heatingMin, heatingMax].includes(undefined)) {
         throw this.refusal(ERRORS.missingValue);
       }
-      const low = Math.max(SETPOINT_LIMITS.heating.min, heatingMin);
+      // The comfort setpoint never below the reduced one (712) nor the protection one (714).
+      const low = Math.max(SETPOINT_LIMITS.heating.min, heatingMin, heatingSetpointReduced);
       const high = Math.min(SETPOINT_LIMITS.heating.max, heatingMax);
       if (low > high) {
         throw this.refusal(ERRORS.missingValue);
@@ -1030,9 +1078,13 @@ export class BsbLanApp {
     if ([dhwSetpoint, dhwSetpointReduced, dhwMax].includes(undefined)) {
       throw this.refusal(ERRORS.missingValue);
     }
-    // 1610 lies between the reduced setpoint (1612) and its max (1614).
+    if (wanted.value > this.config.dhwCap) {
+      throw this.refusal(ERRORS.dhwCap(this.config.dhwCap));
+    }
+    // 1610 lies between the reduced setpoint (1612) and its max (1614), and
+    // never above the ceiling.
     const low = Math.max(SETPOINT_LIMITS.dhw.min, dhwSetpointReduced);
-    const high = Math.min(SETPOINT_LIMITS.dhw.max, dhwMax);
+    const high = Math.min(SETPOINT_LIMITS.dhw.max, dhwMax, this.config.dhwCap);
     if (low > high) {
       throw this.refusal(ERRORS.missingValue);
     }
@@ -1051,7 +1103,9 @@ export class BsbLanApp {
     for (const delay of TIMINGS.followUps) {
       const handle = this.timers.setTimeout(() => {
         adapter.followUps.delete(handle);
-        if (generation === this.generation) {
+        // Never sooner than the backoff: an adapter that stopped answering
+        // is read again on its own schedule only.
+        if (generation === this.generation && this.adapter?.online !== false) {
           this.tick().catch(() => this.logger.error('BSB-LAN refresh failed'));
         }
       }, delay);

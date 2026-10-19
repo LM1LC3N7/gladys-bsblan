@@ -165,6 +165,26 @@ up to date at the end of every milestone.
   plain string. Never in logs, statuses, errors, `/data`; an invalid
   address is shown without credentials nor path. Plain http said in the
   manifest, docs and README.
+- **Review round 1 (2026-10-19)**, no blocker:
+  - I1: a command session opens with a raw `/JI` (in the 2.5 s read
+    budget, before the `/JQ`): the MAC must be the device's, the bus BSB or
+    LPB, writing allowed; else "not sent". Tests H15a/H15b in
+    `test/review.test.js`.
+  - I2: `beforeSend` is passed to the transport and runs once the
+    connection is up, right before `req.end`; a refusal destroys the
+    socket, `sent: false`, the error marked `beforeSend` (H19, and the real
+    transport on a loopback server).
+  - M1: the hot water range shown includes the ceiling,
+    `min(60, 1614, ceiling)`. M2: no follow-up read while the adapter is
+    offline. M3: a poll started before a command keeps the values the
+    command re-read (`refreshedAt`). M4: `buswritable` writable only when
+    absent, 1, true or "1"; commands only on a bus named BSB or LPB. M5:
+    712 read too, low = max(5, 714, 712). M6: docs: the 404 of a wrong
+    passkey is to check; a lower ceiling does not lower a setpoint already
+    higher; the anti-legionella function may exceed the ceiling. M7: the
+    403 status names the trusted IP addresses. M8: PPS setpoint on its own
+    read-only role `room-setpoint` (probe). M9: documented that an unknown
+    mode leaves the last known choice in the list.
 - **gladys_version >= 5.1.0** (as the sibling local modules); **category
   `climate`**, transport `local`.
 - **Template demo files** (devices, scenes, widgets, weather and their

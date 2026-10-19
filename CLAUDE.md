@@ -61,7 +61,8 @@ scripts/cover.mjs            cover.png generator
 
 - **External ids are forever**: device `bsblan:<mac>` (12 lowercase hex
   digits), features `mode`, `operating-mode`, `heating-status`,
-  `heating-setpoint`, `heating-setpoint-reduced`, `temperature-room`,
+  `heating-setpoint`, `heating-setpoint-reduced`, `room-setpoint` (PPS, read
+  only), `temperature-room`,
   `temperature-outdoor`, `dhw-mode`, `dhw-setpoint`, `dhw-setpoint-reduced`,
   `temperature-dhw`, `dhw-pump`, `energy-total`. A republished device never
   loses a feature (`keepCreatedFeatures`).

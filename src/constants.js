@@ -19,6 +19,8 @@ export const FEATURES = {
   HEATING_STATUS: 'heating-status',
   HEATING_SETPOINT: 'heating-setpoint',
   HEATING_SETPOINT_REDUCED: 'heating-setpoint-reduced',
+  /** The room setpoint of a PPS bus, read only. */
+  PPS_SETPOINT: 'room-setpoint',
   TEMP_ROOM: 'temperature-room',
   TEMP_OUTDOOR: 'temperature-outdoor',
   DHW_MODE: 'dhw-mode',

@@ -158,6 +158,7 @@ export class BsbClient {
     this.closed = false;
     /** The requests of a command session, without the Gate (it is held). */
     this.raw = {
+      info: (options) => this.exchange('/JI', options),
       query: (ids, options) => this.exchange('/JQ', { query: queryOf(ids), ...options }),
       set: (id, value, options) =>
         this.exchange('/JS', {
@@ -186,6 +187,9 @@ export class BsbClient {
     if (timeout <= 0 || (startBy !== undefined && startBy <= now)) {
       throw new BsbError(CODES.LATE);
     }
+    // Checked here once (nothing is opened when it already refuses), then
+    // again by the transport once the connection is up, right before the
+    // first byte leaves (a connection slow to open must not hide a change).
     if (beforeSend) {
       try {
         beforeSend();
@@ -206,6 +210,7 @@ export class BsbClient {
         timeout,
         sendWithin: startBy === undefined ? TIMINGS.connectTimeout : startBy - now,
         maxBytes: LIMITS.bodyBytes,
+        ...(beforeSend ? { beforeSend } : {}),
       });
     } catch (err) {
       // Not connected within the connect timeout of a request without

@@ -31,7 +31,8 @@ test('decode: a BSB controller (python-bsblan fixtures)', () => {
 test('decode: PPS', () => {
   const v = decode('pps', ppsParams());
   assert.deepEqual(v.mode, { code: 0, key: 'automatic' });
-  assert.equal(v.heatingSetpoint, 20.5);
+  assert.equal(v.ppsSetpoint, 20.5);
+  assert.equal(v.heatingSetpoint, undefined, 'never the writable thermostat');
   assert.equal(v.room, 19.8);
   assert.equal(v.outdoor, 5);
 });
@@ -88,6 +89,7 @@ test('/JI: the MAC is the id; bus and write access', () => {
     bus: 'bsb',
     busName: 'BSB',
     writable: true,
+    commandBus: true,
   });
   assert.equal(adapterOf({ ...bsbInfo(), MAC: '00:00:00:00:00:00' }).mac, undefined);
   assert.equal(adapterOf({ ...bsbInfo(), MAC: 'nope' }).mac, undefined);
@@ -97,6 +99,21 @@ test('/JI: the MAC is the id; bus and write access', () => {
   assert.equal(adapterOf({ ...bsbInfo(), buswritable: 0 }).writable, false);
   assert.equal(adapterOf({ ...bsbInfo(), buswritable: undefined }).writable, true);
   assert.equal(adapterOf(null), undefined);
+});
+
+test('/JI strict (M4): writable only absent, 1, true or "1"; commands on BSB or LPB only', () => {
+  for (const value of [1, true, '1', undefined]) {
+    assert.equal(adapterOf({ ...bsbInfo(), buswritable: value }).writable, true, String(value));
+  }
+  for (const value of [0, false, '0', 2, 'yes', null, '', {}]) {
+    assert.equal(adapterOf({ ...bsbInfo(), buswritable: value }).writable, false, String(value));
+  }
+  assert.equal(adapterOf({ ...bsbInfo(), bus: 'LPB' }).commandBus, true);
+  assert.equal(adapterOf({ ...bsbInfo(), bus: 'PPS' }).commandBus, false);
+  const noBus = adapterOf({ ...bsbInfo(), bus: undefined });
+  assert.equal(noBus.busName, 'unknown');
+  assert.equal(noBus.commandBus, false);
+  assert.equal(adapterOf({ ...bsbInfo(), bus: 'CAN' }).commandBus, false);
 });
 
 test('/JV: 1.0 at least', () => {

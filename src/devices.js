@@ -103,6 +103,7 @@ export function definitionOf(role) {
         keep_history: true,
       };
     case F.HEATING_SETPOINT_REDUCED:
+    case F.PPS_SETPOINT:
     case F.DHW_SETPOINT_REDUCED:
       return probe(0, 95);
     case F.TEMP_ROOM:
@@ -129,6 +130,7 @@ export function definitionOf(role) {
 const NUMBERS = {
   [F.HEATING_SETPOINT]: (v) => v.heatingSetpoint,
   [F.HEATING_SETPOINT_REDUCED]: (v) => v.heatingSetpointReduced,
+  [F.PPS_SETPOINT]: (v) => v.ppsSetpoint,
   [F.TEMP_ROOM]: (v) => v.room,
   [F.TEMP_OUTDOOR]: (v) => v.outdoor,
   [F.DHW_SETPOINT]: (v) => v.dhwSetpoint,
@@ -145,6 +147,7 @@ export const ROLES = [
   F.HEATING_STATUS,
   F.HEATING_SETPOINT,
   F.HEATING_SETPOINT_REDUCED,
+  F.PPS_SETPOINT,
   F.TEMP_ROOM,
   F.TEMP_OUTDOOR,
   F.DHW_MODE,
