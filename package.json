@@ -1,6 +1,6 @@
 {
   "name": "gladys-bsblan",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "private": true,
   "description": "Gladys Assistant external integration for boilers and heat pumps with a Siemens controller (ELCO, Brötje, Baxi, MHG...) through the BSB-LAN adapter, over the local network: temperatures, comfort setpoint, heating mode, hot water, optional commands with a capped hot water setpoint. Unofficial, not affiliated with the BSB-LAN project nor the manufacturers.",
   "type": "module",
