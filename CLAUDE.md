@@ -85,8 +85,8 @@ scripts/cover.mjs            cover.png generator
   then, refused when a value is missing; never sent after 3.5 s; a write
   without status 1 is "sent, without confirmation"; never retried; one at a
   time; the ack never waits for Gladys. Never leave an unknown mode.
-- **Hot water**: never above the configured ceiling (55 °C by default) nor
-  60 °C, whole degrees only.
+- **Hot water**: never above the configured ceiling (65 °C by default) nor
+  65 °C nor the controller's nominal max (1614), whole degrees only.
 - **Energy**: never an `energy-sensor` index nor `publishEnergyConsumption`
   until a real adapter shows 3113 is cumulative and reliable.
 - Units only from the core's `DEVICE_FEATURE_UNITS_BY_CATEGORY`.

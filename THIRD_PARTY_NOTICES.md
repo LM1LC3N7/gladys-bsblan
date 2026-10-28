@@ -58,6 +58,6 @@ keys of the answers are read and every value is checked against a plausible
 range; °F is not shown (the features are in °C); the outcome of `/JS` is
 read (`status` 1 written, 2 refused, anything else unconfirmed); heating
 circuit 1 only; PPS read only; the hot water setpoint bounded by 1612–1614
-read just before writing, capped (55 °C by default, 60 °C at most); each
+read just before writing, capped (65 °C by default, 65 °C at most); each
 command reads its parameters again right before writing; credentials
 refused and HTTP 429/5xx persisted in `/data` and spaced.

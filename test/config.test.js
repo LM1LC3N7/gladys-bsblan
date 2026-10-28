@@ -47,14 +47,16 @@ test('passkey and credentials: both or neither, printable ASCII', () => {
   assert.deepEqual(ok.address, { host: 'h', port: 80 });
 });
 
-test('the commands: only true allows; the ceiling 40–60, 55 by default', () => {
+test('the commands: only true allows; the ceiling 40–65, 65 by default', () => {
   assert.equal(normalizeConfig({}).allowCommands, false);
   assert.equal(normalizeConfig({ allow_commands: 'true' }).allowCommands, true);
   assert.equal(normalizeConfig({ allow_commands: 1 }).allowCommands, false);
-  assert.equal(dhwCapOf(undefined), 55);
-  assert.equal(dhwCapOf(''), 55);
-  assert.equal(dhwCapOf('abc'), 55);
-  assert.equal(dhwCapOf(80), 60);
+  assert.equal(dhwCapOf(undefined), 65);
+  assert.equal(dhwCapOf(''), 65);
+  assert.equal(dhwCapOf('abc'), 65);
+  assert.equal(dhwCapOf(80), 65);
+  assert.equal(dhwCapOf(65), 65);
+  assert.equal(dhwCapOf(65.5), 65);
   assert.equal(dhwCapOf('30'), 40);
   assert.equal(dhwCapOf(52.9), 52);
 });

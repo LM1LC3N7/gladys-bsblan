@@ -44,14 +44,15 @@ export const POLL_INTERVAL = {
 
 /**
  * The hot water setpoint the commands may set, in °C (scalding risk). The
- * configuration chooses the ceiling between `min` and `max`, 55 °C by
- * default; nothing above 60 °C is ever sent, whatever the configuration or
- * the controller would accept (its nominal setpoint max, 1614, is often 65).
+ * configuration chooses the ceiling between `min` and `max`, 65 °C by
+ * default; nothing above 65 °C is ever sent, whatever the configuration or
+ * the controller would accept. The controller's own nominal setpoint max
+ * (1614), read before each command, still applies when it is lower.
  */
 export const DHW_CAP = {
   min: 40,
-  max: 60,
-  default: 55,
+  max: 65,
+  default: 65,
 };
 
 /**

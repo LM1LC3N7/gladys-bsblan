@@ -4,7 +4,7 @@
 boilers and heat pumps with a Siemens controller (ELCO, Brötje, Baxi, MHG,
 Atlantic…) through the **BSB-LAN** adapter and its local JSON API:
 temperatures, comfort setpoint, heating mode, hot water, and three commands
-(mode, comfort setpoint, hot water setpoint capped at 55 °C by default)
+(mode, comfort setpoint, hot water setpoint capped at 65 °C by default)
 behind an off-by-default option. **Never tested with a real adapter. Not
 affiliated with the BSB-LAN project nor the manufacturers.** BSB-LAN speaks
 plain http: keep it on a trusted network.
@@ -49,8 +49,8 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   before the request leaves, leaves within 3.5 s of the click or is refused
   unsent, and is answered by 4.3 s; a write without status 1 is "sent,
   without confirmation", followed by reads 5 s and 20 s later. Hot water:
-  whole degrees, ceiling 55 °C by default, configurable 40–60 °C, never
-  above 60 °C. Refused on a PPS bus and when BSB-LAN is read only.
+  whole degrees, ceiling 65 °C by default, configurable 40–65 °C, never
+  above 65 °C nor the controller's own maximum. Refused on a PPS bus and when BSB-LAN is read only.
 - **Guards**: after a write, until a read shows it (or 90 s), the same
   setting is sent again even when the read shows the wanted value.
 

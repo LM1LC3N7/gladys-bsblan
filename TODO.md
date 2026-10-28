@@ -98,7 +98,7 @@ up to date at the end of every milestone.
   outside temperatures and read-only setpoints `temperature-sensor/probe`
   °C; room temperature `temperature-sensor/decimal`; comfort setpoint
   `thermostat/target-temperature` °C (slider 5–35); hot water setpoint
-  `water-heater/target-temperature` °C (slider 10–60, integers); mode
+  `water-heater/target-temperature` °C (slider 10–65, integers); mode
   `text/select` (BSB/LPB only) with a read-only `text/text` that also shows
   an unknown code; status and hot water mode `text/text`; pump
   `unknown/binary` read only (lot 6 lesson: no switch). A feature appears
@@ -117,13 +117,13 @@ up to date at the end of every milestone.
   strictly: a mode is one exact key of the list; a setpoint a finite
   number or a plain decimal text (`''`, `null`, `'1e1'`, `true` refused), a
   tenth of a degree for heating (5–35 °C), whole degrees for hot water
-  (10–60 °C), then the range read just before: 714–716 for heating,
+  (10–65 °C), then the range read just before: 714–716 for heating,
   1612–1614 for hot water; a missing value or bound refuses. An unknown
   mode code (not 0–3) is never left. Refused on a PPS bus (v1) and when
   `/JI` says `buswritable: 0`.
-- **Hot water ceiling**: `dhw_max_temperature`, 55 °C by default, 40–60 °C
-  (a typed value outside is clamped, never above 60; rounded down;
-  anything not a number gives 55). Refused on arrival above it, checked
+- **Hot water ceiling**: `dhw_max_temperature`, 65 °C by default, 40–65 °C
+  (a typed value outside is clamped, never above 65; rounded down;
+  anything not a number gives 65; Louis's rule of 2026-10-28, was 55/60). Refused on arrival above it, checked
   again after the fresh read and right before the request leaves
   (`beforeSend`): a ceiling lowered during a command stops it. 1612, 1614
   and the legionella function are never written.
@@ -174,7 +174,7 @@ up to date at the end of every milestone.
     socket, `sent: false`, the error marked `beforeSend` (H19, and the real
     transport on a loopback server).
   - M1: the hot water range shown includes the ceiling,
-    `min(60, 1614, ceiling)`. M2: no follow-up read while the adapter is
+    `min(65, 1614, ceiling)`. M2: no follow-up read while the adapter is
     offline. M3: a poll started before a command keeps the values the
     command re-read (`refreshedAt`). M4: `buswritable` writable only when
     absent, 1, true or "1"; commands only on a bus named BSB or LPB. M5:

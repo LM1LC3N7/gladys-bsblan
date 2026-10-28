@@ -100,12 +100,13 @@ ou LPB : sinon l'écran de configuration l'indique et les commandes sont
 refusées. L'écriture n'est tenue pour autorisée que si BSB-LAN ne dit rien
 (anciens micrologiciels) ou dit exactement 1.
 
-### Plafond de l'eau chaude : 55 °C par défaut
+### Plafond de l'eau chaude : 65 °C par défaut
 
-Une eau à 60 °C brûle en quelques secondes. Gladys ne règle donc **jamais
-l'eau chaude au-dessus de 55 °C** par défaut. Le réglage **Plafond de l'eau
-chaude** le change de 40 à 60 °C ; il n'est **jamais possible de dépasser
-60 °C**, quoi qu'on saisisse (même si le régulateur accepte souvent 65 °C).
+Une eau chaude brûle en quelques secondes. Gladys ne règle donc **jamais
+l'eau chaude au-dessus de 65 °C** par défaut. Le réglage **Plafond de l'eau
+chaude** l'abaisse, de 40 à 65 °C ; il n'est **jamais possible de dépasser
+65 °C**, quoi qu'on saisisse. Le maximum nominal du régulateur (1614), relu
+avant chaque commande, s'applique toujours s'il est plus bas.
 Une consigne au-dessus du plafond est refusée dès son arrivée, sans être
 envoyée ; le plafond est revérifié après la relecture et juste avant l'envoi
 (un plafond abaissé pendant une commande l'arrête). Les consignes réduites,
@@ -118,7 +119,7 @@ Ce que le plafond ne fait pas :
   le régulateur (réglée sur la chaudière, ou avant) : il limite seulement
   ce que Gladys envoie. Baissez-la vous-même si besoin ;
 - la **fonction anti-légionelles** du régulateur (1640 à 1648) chauffe
-  l'eau à sa propre consigne, souvent 60 °C ou plus, au-dessus du plafond :
+  l'eau à sa propre consigne, parfois au-dessus du plafond :
   Gladys ne la règle pas et ne l'empêche pas.
 
 ### Ce que Gladys ne fait jamais

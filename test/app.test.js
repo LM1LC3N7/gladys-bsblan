@@ -206,7 +206,7 @@ test('one device keyed by the MAC: the features its parameters gave, no switch, 
     'celsius',
     false,
     10,
-    60,
+    65,
   ]);
   assert.deepEqual(shape['temperature-room'], [
     'temperature-sensor',
@@ -331,27 +331,40 @@ test('the comfort setpoint: bounded by 714–716 read just before, strict values
   assert.deepEqual(bsb.writes(), [['710', '21.5']]);
 });
 
-test('hot water: 55 °C by default, refused on arrival above it, bounded by 1612–1614', async (t) => {
+test('hot water: 65 °C by default, refused on arrival above it, bounded by 1612–1614', async (t) => {
   const bsb = fakeBsbLan();
   const { command, app } = await setup(t, { bsb, config: ALLOWED });
-  const above = await command('dhw-setpoint', 56);
-  assert.match(above.error, /plafonnée à 55 °C/);
-  assert.equal((await command('dhw-setpoint', 61)).success, false, 'never above 60');
+  assert.equal(app.config.dhwCap, 65, '65 °C by default');
+  const above = await command('dhw-setpoint', 66);
+  assert.match(above.error, /entre 10 et 65 °C/);
+  assert.equal((await command('dhw-setpoint', 65.5)).success, false, 'never above 65');
   assert.match((await command('dhw-setpoint', 50.5)).error, /multiple de 1 °C/);
   assert.match(
     (await command('dhw-setpoint', 39)).error,
-    /entre 40 et 55 °C actuellement/,
+    /entre 40 et 65 °C actuellement/,
     'the ceiling in the range shown',
   );
+  assert.deepEqual(bsb.writes(), [], 'nothing sent above the ceiling');
   const before = bsb.requests.length;
-  assert.equal((await command('dhw-setpoint', 52)).success, true);
+  assert.equal((await command('dhw-setpoint', 65)).success, true, '65 °C is allowed');
   assert.deepEqual(bsb.requests[before + 1].ids, ['1610', '1612', '1614']);
-  assert.deepEqual(bsb.writes(), [['1610', '52']]);
+  assert.deepEqual(bsb.writes(), [['1610', '65']]);
   await command('dhw-setpoint', 52, { wait: 30 * SECOND });
   await app.configUpdated({ ...ALLOWED, dhw_max_temperature: 75 });
-  assert.equal(app.config.dhwCap, 60, 'the ceiling never goes above 60');
+  assert.equal(app.config.dhwCap, 65, 'the ceiling never goes above 65');
+  await app.configUpdated({ ...ALLOWED, dhw_max_temperature: 55 });
+  assert.match((await command('dhw-setpoint', 56)).error, /plafonnée à 55 °C/);
+  await app.configUpdated({ ...ALLOWED });
   bsb.params[1614] = { ...bsb.params[1614], value: '58.0' };
-  assert.match((await command('dhw-setpoint', 59)).error, /entre 40 et 58 °C/);
+  assert.match(
+    (await command('dhw-setpoint', 59)).error,
+    /entre 40 et 58 °C/,
+    'the controller maximum wins when lower',
+  );
+  assert.deepEqual(bsb.writes(), [
+    ['1610', '65'],
+    ['1610', '52'],
+  ]);
 });
 
 test('a ceiling lowered during the fresh read stops the command', async (t) => {

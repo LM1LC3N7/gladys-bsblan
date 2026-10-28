@@ -96,12 +96,13 @@ otherwise the configuration screen says so and the commands are refused.
 Writing counts as allowed only when BSB-LAN says nothing (older firmwares)
 or exactly 1.
 
-### Hot water ceiling: 55 °C by default
+### Hot water ceiling: 65 °C by default
 
-Water at 60 °C scalds in seconds. Gladys therefore **never sets the hot
-water above 55 °C** by default. The **Hot water ceiling** setting changes it
-from 40 to 60 °C; it is **never possible to go above 60 °C**, whatever is
-typed (even though the controller often accepts 65 °C). A setpoint above the
+Hot water scalds in seconds. Gladys therefore **never sets the hot water
+above 65 °C** by default. The **Hot water ceiling** setting lowers it, from
+40 to 65 °C; it is **never possible to go above 65 °C**, whatever is typed.
+The controller's own nominal maximum (1614), read before each command, still
+applies when it is lower. A setpoint above the
 ceiling is refused on arrival, never sent; the ceiling is checked again
 after the fresh read and right before the request leaves (a ceiling lowered
 during a command stops it). The reduced setpoints, the anti-legionella
@@ -113,7 +114,7 @@ What the ceiling does not do:
   controller (set on the boiler, or earlier): it only limits what Gladys
   sends. Lower it yourself if needed;
 - the **anti-legionella function** of the controller (1640 to 1648) heats
-  the water to its own setpoint, often 60 °C or more, above the ceiling:
+  the water to its own setpoint, possibly above the ceiling:
   Gladys neither sets it nor prevents it.
 
 ### What Gladys never does
