@@ -10,6 +10,17 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Commands refused as "read only" on BSB-LAN 5.0.x while its info page says
+  Read/Write (forum t/11458): up to 5.1.18 the firmware prints `buswritable`
+  of `/JI` from a decimal variable with an integer format, so its value
+  means nothing. The access BSB-LAN gives each parameter (`readwrite` of
+  `/JQ`) now decides first; `buswritable` is read in all its forms (1, 2,
+  true, "Yes", "RW"… / 0, false, "No", "RO"…), an ambiguous value is
+  "unknown", and it is never believed before 5.1.19. A parameter read only
+  is refused even when the bus is writable.
+
 ## [0.1.3] - 2026-10-28
 
 ### Changed

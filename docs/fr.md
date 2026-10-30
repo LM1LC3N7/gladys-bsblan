@@ -97,8 +97,15 @@ est refusée. Activée, Gladys peut changer :
 
 BSB-LAN doit aussi autoriser l'écriture sur le bus, et nommer son bus BSB
 ou LPB : sinon l'écran de configuration l'indique et les commandes sont
-refusées. L'écriture n'est tenue pour autorisée que si BSB-LAN ne dit rien
-(anciens micrologiciels) ou dit exactement 1.
+refusées. Pour savoir si l'écriture est permise, l'intégration lit d'abord
+l'accès que BSB-LAN donne à **chaque paramètre** dans sa réponse (`readwrite` :
+0 lecture/écriture, 1 lecture seule, 2 écriture seule) : il tient compte du
+réglage d'écriture de BSB-LAN et des paramètres que le régulateur verrouille.
+Faute de cet accès, elle suit le champ `buswritable` de `/JI` (1, 2, « Yes »,
+« RW »… : autorisée ; 0, « No », « RO »… : lecture seule ; toute autre valeur :
+inconnue, commandes refusées). Jusqu'à la version 5.1.18, BSB-LAN écrit ce
+champ de travers (un nombre à virgule affiché comme un entier : il vaut
+souvent 0 alors que l'écriture est permise) : il n'est alors jamais cru.
 
 ### Plafond de l'eau chaude : 65 °C par défaut
 
@@ -138,8 +145,8 @@ Ce que le plafond ne fait pas :
 ### Comment une commande part
 
 Avant chaque commande, l'intégration relit d'abord l'adaptateur (`/JI`) :
-il doit avoir la même adresse MAC que l'appareil, un bus BSB ou LPB et
-l'écriture autorisée, sinon rien n'est envoyé (un autre adaptateur qui a
+il doit avoir la même adresse MAC que l'appareil et un bus BSB ou LPB, et
+la relecture doit donner le paramètre en écriture, sinon rien n'est envoyé (un autre adaptateur qui a
 pris l'adresse IP n'est jamais commandé). Puis elle **relit** la valeur
 actuelle et la plage permise par le régulateur, et décide sur cette lecture
 seule ; aucune

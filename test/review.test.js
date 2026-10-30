@@ -12,7 +12,15 @@ import { SECOND } from '../src/constants.js';
 import { httpRequest } from '../src/bsblan/http.js';
 import { registerHandlers } from '../src/handlers.js';
 import { memoryStore } from '../src/store.js';
-import { HOST, MAC_ID, NOW, bsbInfo, fakeBsbLan, settle } from './fixtures/fakeBsbLan.js';
+import {
+  HOST,
+  MAC_ID,
+  NOW,
+  bsbInfo,
+  bsbParams,
+  fakeBsbLan,
+  settle,
+} from './fixtures/fakeBsbLan.js';
 
 const ALLOWED = { address: HOST, allow_commands: true };
 const device = `ext:test-integration:bsblan:${MAC_ID}`;
@@ -61,13 +69,15 @@ async function setup(t, { config = ALLOWED, bsb = fakeBsbLan(), create = true } 
 
 const jsRequests = (bsb) => bsb.requests.filter((r) => r.endpoint === '/JS');
 
-test('I1 (H15a): write access turned off between two polls: the /JI of the command refuses', async (t) => {
+test('I1 (H15a): write access turned off between two polls: the fresh read of the command refuses', async (t) => {
   const s = await setup(t);
+  // As the firmware: write access off makes every parameter read only too.
   s.bsb.info = { ...s.bsb.info, buswritable: 0 };
+  s.bsb.params[700] = { ...s.bsb.params[700], readwrite: 1 };
   const ack = await s.command('mode', 'reduced');
   assert.match(ack.error, /lecture seule.*non envoyée/);
   assert.deepEqual(jsRequests(s.bsb), []);
-  assert.equal(s.bsb.requests.at(-1).endpoint, '/JI', 'nothing after the /JI');
+  assert.equal(s.bsb.requests.at(-1).endpoint, '/JQ', 'nothing after the fresh read');
 });
 
 test('I1 (H15b): another adapter at the address between two polls: never written to it', async (t) => {
@@ -231,9 +241,16 @@ test('hot water: 1612 above the ceiling is named, not "no range"', async (t) => 
   assert.deepEqual(jsRequests(s.bsb), []);
 });
 
-test('M4: an unknown bus or a buswritable other than 1 refuses the commands', async (t) => {
-  const s = await setup(t, { bsb: fakeBsbLan({ info: { ...bsbInfo(), buswritable: 2 } }) });
-  assert.match((await s.command('mode', 'reduced')).error, /lecture seule/);
+test('M4: an unknown bus, or an ambiguous buswritable without a parameter access, refuses the commands', async (t) => {
+  const params = bsbParams();
+  delete params[700].readwrite;
+  const s = await setup(t, {
+    bsb: fakeBsbLan({ params, info: { ...bsbInfo(), buswritable: 7 } }),
+  });
+  assert.match(
+    (await s.command('mode', 'reduced')).error,
+    /ne dit pas si ce paramètre peut être écrit/,
+  );
   s.bsb.info = { ...bsbInfo(), bus: 'XYZ' };
   await s.advance(31 * SECOND);
   assert.match(s.gladys.fake.connectionStatus.message.en, /did not name its bus/);

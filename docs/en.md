@@ -93,8 +93,14 @@ Gladys may change:
 
 BSB-LAN must also allow writing to the bus, and name its bus BSB or LPB:
 otherwise the configuration screen says so and the commands are refused.
-Writing counts as allowed only when BSB-LAN says nothing (older firmwares)
-or exactly 1.
+To know whether writing is allowed, the integration first reads the access
+BSB-LAN gives **each parameter** in its answer (`readwrite`: 0 read/write, 1
+read only, 2 write only): it folds in the write setting of BSB-LAN and the
+parameters the controller locks. Without it, it follows the `buswritable`
+field of `/JI` (1, 2, "Yes", "RW"…: allowed; 0, "No", "RO"…: read only; any
+other value: unknown, commands refused). Up to version 5.1.18, BSB-LAN prints
+that field wrongly (a decimal number printed as an integer: often 0 while
+writing is allowed): it is then never believed.
 
 ### Hot water ceiling: 65 °C by default
 
@@ -132,8 +138,8 @@ What the ceiling does not do:
 ### How a command leaves
 
 Before each command, the integration first reads the adapter again
-(`/JI`): it must have the MAC address of the device, a BSB or LPB bus and
-writing allowed, otherwise nothing is sent (another adapter that took the
+(`/JI`): it must have the MAC address of the device and a BSB or LPB bus,
+and the fresh read must give the parameter as writable, otherwise nothing is sent (another adapter that took the
 IP address is never commanded). Then it **reads again** the current value
 and the range the controller allows, and decides on that read only; no other
 request runs between that read and the write, and the option (and the

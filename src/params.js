@@ -194,7 +194,18 @@ export function energy(entry) {
 
 /** The decoded values of one poll (`answer`: the /JQ answers merged). */
 export function decode(bus, answer) {
-  const values = { fahrenheit: false };
+  const values = { fahrenheit: false, access: {} };
+  if (isObject(answer)) {
+    for (const id of Object.keys(answer)) {
+      if (!/^\d{1,5}$/.test(id)) {
+        continue;
+      }
+      const access = accessOf(entryOf(answer, id));
+      if (access !== undefined) {
+        values.access[id] = access;
+      }
+    }
+  }
   const setTemperature = (key, id, min, max) => {
     const read = temperature(entryOf(answer, id), min, max);
     if (read.fahrenheit) {
@@ -262,9 +273,101 @@ export function identificationOf(answer) {
 }
 
 /**
+ * The firmware versions whose `buswritable` (/JI) can be believed. Up to
+ * 5.1.18, BSB-LAN printed that field from a `float` variable with `%d`
+ * (BSB_LAN.ino, "dump configuration in JSON"): undefined behaviour in C,
+ * the number shown (often 0, sometimes a large number) says nothing of the
+ * real setting. Fixed in 5.1.19 (fredlcore/BSB-LAN 898ab77, 2026-09-14,
+ * "Bugfixes for /JL and /JW": the variable became a `uint8_t`).
+ */
+export const BUSWRITABLE_FIXED = [5, 1, 19];
+
+/** "5.0.111-20260211204302" -> [5, 0, 111], else undefined. */
+export function firmwareOf(version) {
+  const match = /^\s*(\d{1,4})\.(\d{1,4})\.(\d{1,6})(?:\D|$)/.exec(String(version ?? ''));
+  return match ? match.slice(1, 4).map(Number) : undefined;
+}
+
+const before = (a, b) => {
+  for (let i = 0; i < 3; i += 1) {
+    if (a[i] !== b[i]) {
+      return a[i] < b[i];
+    }
+  }
+  return false;
+};
+
+const WRITABLE_WORDS = new Set([
+  '1',
+  '2',
+  'yes',
+  'y',
+  'true',
+  'on',
+  'rw',
+  'read/write',
+  'readwrite',
+]);
+const READ_ONLY_WORDS = new Set(['0', 'no', 'n', 'false', 'off', 'ro', 'read only', 'readonly']);
+
+/**
+ * What a `buswritable` value says: true (writable), false (read only), or
+ * undefined (ambiguous: anything else). BSB-LAN sends a number, 0 or 1
+ * (its OpenAPI also lists 2, "yes (technician)"); a boolean or a word
+ * ("Yes", "RW", "No", "RO") is read the same way, case and spaces aside.
+ */
+export function busWritableOf(value) {
+  if (value === true || value === false) {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value === 1 || value === 2 ? true : value === 0 ? false : undefined;
+  }
+  if (typeof value !== 'string' || value.length > 20) {
+    return undefined;
+  }
+  const word = value.trim().toLowerCase();
+  if (WRITABLE_WORDS.has(word)) {
+    return true;
+  }
+  return READ_ONLY_WORDS.has(word) ? false : undefined;
+}
+
+/**
+ * The access BSB-LAN gives one parameter in a /JQ (or /JK, /JC) answer:
+ * `readwrite` 0 read/write, 1 read only, 2 write only; the older
+ * `readonly` (0 or 1, deprecated) when `readwrite` is missing. The firmware
+ * computes it from the parameter's own flags AND the global write setting
+ * (DEFAULT_FLAG, "Bus write access"): the most precise answer there is.
+ * @returns {'rw' | 'ro' | 'wo' | undefined}
+ */
+export function accessOf(entry) {
+  if (!entry) {
+    return undefined;
+  }
+  const code = (value) =>
+    typeof value === 'number' && Number.isInteger(value)
+      ? value
+      : typeof value === 'string' && /^\s*\d\s*$/.test(value)
+        ? Number(value)
+        : undefined;
+  const readwrite = code(field(entry, 'readwrite'));
+  if (readwrite !== undefined) {
+    return ['rw', 'ro', 'wo'][readwrite];
+  }
+  const readonly = code(field(entry, 'readonly'));
+  return readonly === 0 ? 'rw' : readonly === 1 ? 'ro' : undefined;
+}
+
+/**
  * The adapter information (/JI), python-bsblan `Device`: the MAC address
  * (the stable id of the device), the firmware version, the bus (BSB, LPB or
  * PPS) and whether writing to the bus is allowed (`buswritable`).
+ *
+ * `writable`: true, false, or undefined when unknown: an ambiguous value,
+ * or a firmware before 5.1.19 (see BUSWRITABLE_FIXED), whose value is
+ * never believed. Absent (the oldest firmwares, as python-bsblan): true.
+ * The access of each parameter (accessOf) decides before it.
  */
 export function adapterOf(info) {
   if (!isObject(info)) {
@@ -279,19 +382,46 @@ export function adapterOf(info) {
   const busText = String(field(info, 'bus') ?? '')
     .trim()
     .toUpperCase();
-  const writable = field(info, 'buswritable');
   const busName = ['BSB', 'LPB', 'PPS'].includes(busText) ? busText : 'unknown';
+  const version = cleanText(String(field(info, 'version') ?? ''))?.slice(0, 40);
+  const firmware = firmwareOf(version);
+  const flagBuggy = firmware !== undefined && before(firmware, BUSWRITABLE_FIXED);
+  const raw = field(info, 'buswritable');
+  let writable;
+  if (raw === undefined) {
+    writable = true;
+  } else if (!flagBuggy) {
+    writable = busWritableOf(raw);
+  }
   return {
     mac: hex && hex !== '000000000000' && hex !== 'ffffffffffff' ? hex : undefined,
-    version: cleanText(String(field(info, 'version') ?? ''))?.slice(0, 40),
+    version,
     bus: busText === 'PPS' ? 'pps' : 'bsb',
     busName,
-    // Stricter than python-bsblan `is_bus_writable`: writable only when the
-    // field is absent (older firmwares) or exactly 1, true or "1".
-    writable: writable === undefined || writable === 1 || writable === true || writable === '1',
+    writable,
+    /** The firmware prints a meaningless `buswritable` (before 5.1.19). */
+    flagBuggy,
     /** Commands only on a BSB or LPB bus (never PPS, never an unknown bus). */
     commandBus: busName === 'BSB' || busName === 'LPB',
   };
+}
+
+/**
+ * Whether a parameter may be written now: its own access (accessOf) in the
+ * fresh read first (`rw`, `wo`: yes; `ro`: no), else what /JI said of the bus.
+ * @returns {'yes' | 'readOnlyParam' | 'readOnlyBus' | 'unknown'}
+ */
+export function writeAccess(access, info) {
+  if (access === 'ro') {
+    return 'readOnlyParam';
+  }
+  if (access === 'rw' || access === 'wo') {
+    return 'yes';
+  }
+  if (info?.writable === true) {
+    return 'yes';
+  }
+  return info?.writable === false ? 'readOnlyBus' : 'unknown';
 }
 
 /**

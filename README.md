@@ -50,7 +50,8 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   unsent, and is answered by 4.3 s; a write without status 1 is "sent,
   without confirmation", followed by reads 5 s and 20 s later. Hot water:
   whole degrees, ceiling 65 °C by default, configurable 40–65 °C, never
-  above 65 °C nor the controller's own maximum. Refused on a PPS bus and when BSB-LAN is read only.
+  above 65 °C nor the controller's own maximum. Refused on a PPS bus and when BSB-LAN gives the parameter as read only
+  (its `readwrite` access, else `buswritable` of `/JI`, never believed before 5.1.19).
 - **Guards**: after a write, until a read shows it (or 90 s), the same
   setting is sent again even when the read shows the wanted value.
 

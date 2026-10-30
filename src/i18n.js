@@ -178,8 +178,12 @@ export const T = {
       'Le régulateur donne des °F : ses températures ne sont pas affichées (les fonctionnalités sont en °C).',
     ),
     readOnlyBus: both(
-      'BSB-LAN is set to read only ("Bus write access" off): commands are refused.',
-      'BSB-LAN est réglé en lecture seule (écriture sur le bus désactivée) : les commandes sont refusées.',
+      'BSB-LAN gives the heating mode as read only (write access off in its configuration, or a parameter the controller locks): commands are refused.',
+      'BSB-LAN donne le mode de chauffage en lecture seule (écriture désactivée dans sa configuration, ou paramètre verrouillé par le régulateur) : les commandes sont refusées.',
+    ),
+    unknownWrite: both(
+      'BSB-LAN does not say whether it may write on the bus: commands are refused (update BSB-LAN).',
+      "BSB-LAN ne dit pas s'il peut écrire sur le bus : les commandes sont refusées (mettez BSB-LAN à jour).",
     ),
     pps: both('PPS bus: read only in this version.', 'Bus PPS : lecture seule dans cette version.'),
     unknownBus: both(
@@ -248,6 +252,14 @@ export const ERRORS = {
   readOnlyBus: both(
     'BSB-LAN is set to read only (bus write access off in its configuration): not sent.',
     'BSB-LAN est réglé en lecture seule (écriture sur le bus désactivée dans sa configuration) : non envoyée.',
+  ),
+  readOnlyParam: both(
+    'BSB-LAN gives this parameter as read only (its write access, or a parameter the controller locks): not sent.',
+    "BSB-LAN donne ce paramètre en lecture seule (son réglage d'écriture, ou paramètre verrouillé par le régulateur) : non envoyée.",
+  ),
+  unknownWrite: both(
+    'BSB-LAN does not say whether this parameter may be written (update BSB-LAN): not sent.',
+    'BSB-LAN ne dit pas si ce paramètre peut être écrit (mettez BSB-LAN à jour) : non envoyée.',
   ),
   paused: both(
     'BSB-LAN is paused (refused credentials, or busy): not sent.',

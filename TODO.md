@@ -120,7 +120,7 @@ up to date at the end of every milestone.
   (10–65 °C), then the range read just before: 714–716 for heating,
   1612–1614 for hot water; a missing value or bound refuses. An unknown
   mode code (not 0–3) is never left. Refused on a PPS bus (v1) and when
-  `/JI` says `buswritable: 0`.
+  BSB-LAN gives the parameter as read only (see "Write access").
 - **Hot water ceiling**: `dhw_max_temperature`, 65 °C by default, 40–65 °C
   (a typed value outside is clamped, never above 65; rounded down;
   anything not a number gives 65; Louis's rule of 2026-10-28, was 55/60). Refused on arrival above it, checked
@@ -176,7 +176,7 @@ up to date at the end of every milestone.
   - M1: the hot water range shown includes the ceiling,
     `min(65, 1614, ceiling)`. M2: no follow-up read while the adapter is
     offline. M3: a poll started before a command keeps the values the
-    command re-read (`refreshedAt`). M4: `buswritable` writable only when
+    command re-read (`refreshedAt`). M4 (redone for t/11458, see "Write access"): `buswritable` writable only when
     absent, 1, true or "1"; commands only on a bus named BSB or LPB. M5:
     712 read too, low = max(5, 714, 712). M6: docs: the 404 of a wrong
     passkey is to check; a lower ceiling does not lower a setpoint already
@@ -195,6 +195,17 @@ up to date at the end of every milestone.
     the connection without answer, never a 404 (no 404 for a passkey
     exists). The "unreachable" status and the docs give that hint; 403 is
     about the credentials only; a real 404 asks "is it a BSB-LAN?".
+- **Write access (forum t/11458, 2026-10-30)**: XDECO, Atlantic Axeo
+  Condens 5000, RVS13.143/227, ESP32, firmware 5.0.111, `DEFAULT_FLAG 0`:
+  the info page says Read/Write, the integration said read only. Root
+  cause in the firmware (BSB_LAN.ino 5.0.111, /JI): `buswritable` printed
+  from a `float` with `%d` (undefined behaviour, often 0); fixed upstream
+  in 5.1.19 (898ab77, 2026-09-14). python-bsblan `is_bus_writable` is
+  `bool(buswritable)`, so it is caught as well. Now: the access of the
+  parameter in the fresh read (`readwrite` 0/1/2, else the deprecated
+  `readonly`) decides; else `buswritable` (number, boolean or word; an
+  ambiguous value is unknown and refuses); never believed before 5.1.19.
+  The status note reads the access of 700. Mutants A1–A7 killed.
 - **gladys_version >= 5.1.0** (as the sibling local modules); **category
   `climate`**, transport `local`.
 - **Template demo files** (devices, scenes, widgets, weather and their

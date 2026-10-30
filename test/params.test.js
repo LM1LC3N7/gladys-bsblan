@@ -1,14 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  accessOf,
   adapterOf,
   apiVersionOf,
+  busWritableOf,
   cleanText,
   decode,
   energy,
+  firmwareOf,
   temperature,
+  writeAccess,
   writeOutcome,
 } from '../src/params.js';
+import { CAPTURE_MAC_ID, info5_0_111, info5_1_33, jqAnswer5x } from './fixtures/captures.js';
 import { bsbInfo, bsbParams, ppsParams } from './fixtures/fakeBsbLan.js';
 
 test('decode: a BSB controller (python-bsblan fixtures)', () => {
@@ -85,10 +90,11 @@ test('texts of the controller are bounded and printable', () => {
 test('/JI: the MAC is the id; bus and write access', () => {
   assert.deepEqual(adapterOf(bsbInfo()), {
     mac: '008041196990',
-    version: '5.1.0',
+    version: '5.1.33-20261027002928',
     bus: 'bsb',
     busName: 'BSB',
     writable: true,
+    flagBuggy: false,
     commandBus: true,
   });
   assert.equal(adapterOf({ ...bsbInfo(), MAC: '00:00:00:00:00:00' }).mac, undefined);
@@ -101,12 +107,19 @@ test('/JI: the MAC is the id; bus and write access', () => {
   assert.equal(adapterOf(null), undefined);
 });
 
-test('/JI strict (M4): writable only absent, 1, true or "1"; commands on BSB or LPB only', () => {
-  for (const value of [1, true, '1', undefined]) {
+test('/JI (M4, redone for t/11458): writable absent, 1, 2, true, "Yes"...; read only 0...; else unknown', () => {
+  for (const value of [1, 2, true, '1', 'yes', 'RW', undefined]) {
     assert.equal(adapterOf({ ...bsbInfo(), buswritable: value }).writable, true, String(value));
   }
-  for (const value of [0, false, '0', 2, 'yes', null, '', {}]) {
+  for (const value of [0, false, '0', 'No', 'RO']) {
     assert.equal(adapterOf({ ...bsbInfo(), buswritable: value }).writable, false, String(value));
+  }
+  for (const value of [null, '', {}, 7, 'maybe']) {
+    assert.equal(
+      adapterOf({ ...bsbInfo(), buswritable: value }).writable,
+      undefined,
+      String(value),
+    );
   }
   assert.equal(adapterOf({ ...bsbInfo(), bus: 'LPB' }).commandBus, true);
   assert.equal(adapterOf({ ...bsbInfo(), bus: 'PPS' }).commandBus, false);
@@ -131,4 +144,112 @@ test('/JS: 1 written, 2 refused, anything else unknown', () => {
   assert.equal(writeOutcome({ 700: { status: 0 } }, '700'), 'unknown');
   assert.equal(writeOutcome({}, '700'), 'unknown');
   assert.equal(writeOutcome({ 710: { status: 1 } }, '700'), 'unknown');
+});
+
+// --- Bus write access: the real /JI and /JQ of BSB-LAN 5.x (forum t/11458) ----
+
+test('/JI of 5.0.111: buswritable is never believed (printed from a float with %d)', () => {
+  for (const value of [0, 1, 1072693248, -1]) {
+    const info = adapterOf(info5_0_111(value));
+    assert.equal(info.writable, undefined, String(value));
+    assert.equal(info.flagBuggy, true);
+    assert.equal(info.commandBus, true);
+    assert.equal(info.mac, CAPTURE_MAC_ID);
+  }
+  assert.deepEqual(firmwareOf('5.0.111-20260211204302'), [5, 0, 111]);
+  assert.deepEqual(firmwareOf('5.1.18'), [5, 1, 18]);
+  assert.equal(adapterOf({ ...info5_0_111(1), version: '5.1.18-x' }).writable, undefined);
+  assert.equal(
+    adapterOf({ ...info5_0_111(1), version: '4.2.53-20250101224944' }).writable,
+    undefined,
+  );
+});
+
+test('/JI from 5.1.19: 0 read only, 1 or 2 writable, anything else unknown', () => {
+  assert.equal(adapterOf(info5_1_33(1)).writable, true);
+  assert.equal(adapterOf(info5_1_33(2)).writable, true);
+  assert.equal(adapterOf(info5_1_33(0)).writable, false);
+  assert.equal(adapterOf({ ...info5_1_33(0), version: '5.1.19-x' }).writable, false);
+  assert.equal(adapterOf(info5_1_33(1072693248)).writable, undefined);
+  assert.equal(adapterOf(info5_1_33(1)).flagBuggy, false);
+  // A version that cannot be read: the value is taken as it is.
+  assert.equal(adapterOf({ ...info5_1_33(0), version: 'dev' }).writable, false);
+  assert.equal(adapterOf({ ...info5_1_33(1), version: undefined }).writable, true);
+});
+
+test('buswritable: every form that means writable or read only, nothing ambiguous', () => {
+  for (const value of [
+    1,
+    2,
+    true,
+    '1',
+    '2',
+    'Yes',
+    ' yes ',
+    'RW',
+    'rw',
+    'true',
+    'On',
+    'read/write',
+  ]) {
+    assert.equal(busWritableOf(value), true, JSON.stringify(value));
+  }
+  for (const value of [0, false, '0', 'No', 'RO', 'read only', 'readonly', 'false', 'off']) {
+    assert.equal(busWritableOf(value), false, JSON.stringify(value));
+  }
+  for (const value of [
+    null,
+    '',
+    3,
+    -1,
+    1.5,
+    NaN,
+    1072693248,
+    'maybe',
+    'yes!',
+    {},
+    [],
+    'x'.repeat(30),
+  ]) {
+    assert.equal(busWritableOf(value), undefined, JSON.stringify(value));
+  }
+  // '1 ' trims to '1': writable (the list above holds the strings that stay ambiguous).
+  assert.equal(busWritableOf('1 '), true);
+});
+
+test('/JQ of 5.x: the access of each parameter (readwrite, else the older readonly)', () => {
+  const answer = jqAnswer5x();
+  assert.equal(accessOf(answer[700]), 'rw');
+  assert.equal(accessOf(answer[8000]), 'ro');
+  assert.equal(accessOf({ ...answer[700], readwrite: 2 }), 'wo');
+  assert.equal(accessOf({ ...answer[700], readwrite: '1' }), 'ro');
+  assert.equal(accessOf({ ...answer[700], readwrite: 3 }), undefined);
+  assert.equal(accessOf({ ...answer[700], readwrite: 'x' }), undefined);
+  const legacy = { ...answer[700] };
+  delete legacy.readwrite;
+  assert.equal(accessOf(legacy), undefined);
+  assert.equal(accessOf({ ...legacy, readonly: 0 }), 'rw');
+  assert.equal(accessOf({ ...legacy, readonly: 1 }), 'ro');
+  // readwrite wins over the deprecated readonly.
+  assert.equal(accessOf({ ...answer[700], readonly: 1 }), 'rw');
+  const values = decode('bsb', answer);
+  assert.equal(values.access['700'], 'rw');
+  assert.equal(values.access['8740'], 'ro');
+  assert.equal(values.mode.key, 'automatic');
+  assert.equal(values.heatingSetpoint, 20);
+  // No prototype pollution through the keys of the answer.
+  const polluted = decode('bsb', JSON.parse('{"__proto__": {"readwrite": 0, "value": "1"}}'));
+  assert.equal(Object.getPrototypeOf(polluted.access), Object.prototype);
+  assert.equal(polluted.access.__proto__, Object.prototype);
+});
+
+test('write access: the parameter decides first, then /JI', () => {
+  const buggy = adapterOf(info5_0_111(0));
+  assert.equal(writeAccess('rw', buggy), 'yes', 'the report: 5.0.111, DEFAULT_FLAG 0');
+  assert.equal(writeAccess('wo', buggy), 'yes');
+  assert.equal(writeAccess('ro', buggy), 'readOnlyParam');
+  assert.equal(writeAccess(undefined, buggy), 'unknown');
+  assert.equal(writeAccess('ro', adapterOf(info5_1_33(1))), 'readOnlyParam', 'locked parameter');
+  assert.equal(writeAccess(undefined, adapterOf(info5_1_33(1))), 'yes');
+  assert.equal(writeAccess(undefined, adapterOf(info5_1_33(0))), 'readOnlyBus');
 });

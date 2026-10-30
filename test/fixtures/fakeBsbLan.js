@@ -28,7 +28,7 @@ const temp = (name, value, unit = '°C') => ({
   desc: '',
   precision: 0.1,
   dataType: 0,
-  readonly: 0,
+  readwrite: 0,
   unit,
 });
 const choice = (name, value, desc) => ({
@@ -39,7 +39,7 @@ const choice = (name, value, desc) => ({
   value,
   desc,
   dataType: 1,
-  readonly: 0,
+  readwrite: 0,
   unit: '',
 });
 
@@ -104,7 +104,7 @@ export const inactive = (name = 'Inactive') => ({
 export function bsbInfo() {
   return {
     name: 'BSB-LAN',
-    version: '5.1.0',
+    version: '5.1.33-20261027002928',
     freeram: 85479,
     uptime: 969402857,
     MAC,
@@ -189,7 +189,8 @@ export function fakeBsbLan({
       }
       case '/JS': {
         const { Parameter: id, Value: value } = request.body;
-        if (!Object.hasOwn(fake.params, id)) {
+        // As the firmware: a parameter it gives as read only is refused (status 2).
+        if (!Object.hasOwn(fake.params, id) || fake.params[id].readwrite === 1) {
           return json(200, { [id]: { status: 2 } });
         }
         fake.params[id] = { ...fake.params[id], value };

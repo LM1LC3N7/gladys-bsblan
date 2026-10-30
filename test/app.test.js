@@ -131,7 +131,7 @@ test('one poll: /JI, /JV, then the parameters four at a time, POST, one request 
   assert.equal(gladys.fake.connectionStatus.connected, true);
   assert.match(
     message(gladys).fr,
-    /Connecté : RVS21\.831F\/127 sur le bus BSB \(BSB-LAN 5\.1\.0\)/,
+    /Connecté : RVS21\.831F\/127 sur le bus BSB \(BSB-LAN 5\.1\.33-20261027002928\)/,
   );
 });
 
@@ -167,7 +167,7 @@ test('one device keyed by the MAC: the features its parameters gave, no switch, 
   assert.deepEqual(d.params, [
     { name: 'mac', value: '00:80:41:19:69:90' },
     { name: 'bus', value: 'BSB' },
-    { name: 'firmware', value: '5.1.0' },
+    { name: 'firmware', value: '5.1.33-20261027002928' },
     { name: 'controller', value: 'RVS21.831F/127' },
   ]);
   assert.deepEqual(roles(d), [
@@ -707,8 +707,12 @@ test('PPS: read only, commands refused', async (t) => {
   assert.deepEqual(bsb.writes(), []);
 });
 
-test('BSB-LAN in read-only mode (buswritable 0): commands refused, said', async (t) => {
-  const bsb = fakeBsbLan({ info: { ...bsbInfo(), buswritable: 0 } });
+test('BSB-LAN in read-only mode (buswritable 0, parameters read only): commands refused, said', async (t) => {
+  const params = bsbParams();
+  for (const id of ['700', '710', '1610']) {
+    params[id] = { ...params[id], readwrite: 1 };
+  }
+  const bsb = fakeBsbLan({ params, info: { ...bsbInfo(), buswritable: 0 } });
   const { gladys, command } = await setup(t, { bsb, config: ALLOWED });
   assert.match(message(gladys).en, /read only/);
   assert.match((await command('mode', 'reduced')).error, /lecture seule/);
@@ -783,4 +787,55 @@ test('logs never carry the passkey, the credentials nor the answers', async (t) 
     logs.every((l) => !/Pk1|Pw-9|7968|RVS21/.test(l)),
     logs.join('\n'),
   );
+});
+
+// --- t/11458: BSB-LAN 5.0.111, DEFAULT_FLAG 0, the info page says "Read/Write" ---
+
+test('t/11458: 5.0.111 with a meaningless buswritable, parameters read/write: no read-only note, commands sent', async (t) => {
+  for (const flag of [0, 1072693248]) {
+    await t.test(`buswritable ${flag}`, async (t) => {
+      const bsb = fakeBsbLan({
+        info: { ...bsbInfo(), version: '5.0.111-20260211204302', buswritable: flag },
+      });
+      const { gladys, command } = await setup(t, { bsb, config: ALLOWED });
+      assert.doesNotMatch(message(gladys).fr, /lecture seule|ne dit pas/);
+      assert.match(message(gladys).fr, /Connecté/);
+      const ack = await command('heating-setpoint', 21);
+      assert.equal(ack.success, true, JSON.stringify(ack));
+      assert.deepEqual(bsb.writes(), [['710', '21.0']]);
+    });
+  }
+});
+
+test('t/11458: a parameter given read only is refused even when /JI says writable', async (t) => {
+  const params = bsbParams();
+  params[710] = { ...params[710], readwrite: 1 };
+  const bsb = fakeBsbLan({ params });
+  const { gladys, command } = await setup(t, { bsb, config: ALLOWED });
+  assert.doesNotMatch(message(gladys).fr, /lecture seule/, 'the mode (700) is writable');
+  const ack = await command('heating-setpoint', 21);
+  assert.match(ack.error, /ce paramètre en lecture seule.*non envoyée/);
+  assert.deepEqual(bsb.writes(), []);
+  assert.deepEqual(
+    bsb.requests.filter((r) => r.endpoint === '/JS'),
+    [],
+  );
+});
+
+test('t/11458: 5.0.111 without any parameter access: unknown, commands refused, said', async (t) => {
+  const params = bsbParams();
+  for (const entry of Object.values(params)) {
+    delete entry.readwrite;
+  }
+  const bsb = fakeBsbLan({
+    params,
+    info: { ...bsbInfo(), version: '5.0.111-20260211204302', buswritable: 0 },
+  });
+  const { gladys, command } = await setup(t, { bsb, config: ALLOWED });
+  assert.match(message(gladys).fr, /ne dit pas s'il peut écrire/);
+  assert.match(
+    (await command('mode', 'reduced')).error,
+    /ne dit pas si ce paramètre peut être écrit/,
+  );
+  assert.deepEqual(bsb.writes(), []);
 });

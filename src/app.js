@@ -49,12 +49,14 @@ import { ERRORS, STATE_TEXTS, T, age, word } from './i18n.js';
 import {
   MODE_CODES,
   P,
+  accessOf,
   POLL,
   SELECTABLE,
   adapterOf,
   apiVersionOf,
   decode,
   identificationOf,
+  writeAccess,
   writeOutcome,
 } from './params.js';
 import { BsbClient } from './bsblan/client.js';
@@ -741,8 +743,15 @@ export class BsbLanApp {
       notes.push(T.notes.pps);
     } else if (!adapter.info.commandBus) {
       notes.push(T.notes.unknownBus);
-    } else if (!adapter.info.writable) {
-      notes.push(T.notes.readOnlyBus);
+    } else {
+      // The access BSB-LAN gives the heating mode (700) in the last read,
+      // else what /JI says of the bus (never believed before 5.1.19).
+      const access = writeAccess(adapter.values.access?.[P.MODE], adapter.info);
+      if (access === 'readOnlyParam' || access === 'readOnlyBus') {
+        notes.push(T.notes.readOnlyBus);
+      } else if (access === 'unknown') {
+        notes.push(T.notes.unknownWrite);
+      }
     }
     const created = this.ourDevices();
     if (created.length > 0 && !created.some((entry) => entry.mac === adapter.mac)) {
@@ -908,8 +917,22 @@ export class BsbLanApp {
     if (!info.commandBus) {
       throw this.refusal(ERRORS.unknownBus);
     }
-    if (!info.writable) {
-      throw this.refusal(ERRORS.readOnlyBus);
+  }
+
+  /**
+   * The parameter may be written: its own access in the fresh read (BSB-LAN
+   * folds its write setting into it), else what /JI says of the bus.
+   */
+  checkWriteAccess(entry, info) {
+    switch (writeAccess(accessOf(entry), info)) {
+      case 'yes':
+        return;
+      case 'readOnlyParam':
+        throw this.refusal(ERRORS.readOnlyParam);
+      case 'readOnlyBus':
+        throw this.refusal(ERRORS.readOnlyBus);
+      default:
+        throw this.refusal(ERRORS.unknownWrite);
     }
   }
 
@@ -952,7 +975,7 @@ export class BsbLanApp {
   async commandSession(raw, target, wanted, { generation, adapter, received, sendBy, readBy }) {
     const { mac, role } = target;
     // First /JI, read now: the adapter answering at this address is the one
-    // of the device (its MAC), on a BSB or LPB bus, writable. Then the
+    // of the device (its MAC), on a BSB or LPB bus. Then the
     // parameters, never the values in memory. Both within the read budget.
     const ids = COMMAND_PARAMS[role];
     let answer;
@@ -991,6 +1014,14 @@ export class BsbLanApp {
     for (const key of COMMAND_VALUES[role]) {
       adapter.values[key] = fresh[key];
     }
+    adapter.values.access = { ...adapter.values.access };
+    for (const id of ids) {
+      if (fresh.access[id] === undefined) {
+        delete adapter.values.access[id];
+      } else {
+        adapter.values.access[id] = fresh.access[id];
+      }
+    }
     const seq = ++this.readSeq;
     for (const id of ids) {
       this.freshReads.set(id, { seq, entry: picked[id] });
@@ -1000,6 +1031,8 @@ export class BsbLanApp {
     this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
 
     this.checkRange(role, wanted, fresh);
+    // Read only (the parameter, or the whole bus): refused before anything leaves.
+    this.checkWriteAccess(picked[wanted.id], adapter.info);
     const current = comparable(role, fresh);
     if (current === undefined) {
       throw this.refusal(ERRORS.missingValue);
