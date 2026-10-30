@@ -25,13 +25,17 @@ up to date at the end of every milestone.
       BSB-LAN only.
 - [ ] **Milestone 2 — real adapter**: run against a real BSB-LAN (see "To
       check"), turn the answers (MAC removed) into fixtures.
-- [ ] **Milestone 3 — more**: heating circuit 2 (1000-series, python-bsblan
-      `heating_circuit2`), cooling (901/902), the hot water mode (1600) as a
-      command, PPS commands (python-bsblan `PPS_HVAC_MODE_TO_BSBLAN`), the
-      hvac action category of 8000 (`HeatingCircuitStatus`), time programs
-      read only, and an opt-in energy index once 3113 is proven cumulative
-      (with the approved guard of gladys-p1-monitor: hold, bounded
-      acceptance button, never 0).
+- [x] **0.2.0 — forum t/11458 (2026-10-30)**: write access fixed (see
+      "Write access"); heating circuit 2, reduced setpoints 712/1012 and
+      1612 as commands, hot water mode as a command, flows, statuses, the
+      boiler, extra read-only parameters, protective commands, success
+      only after a read back. Not reviewed yet (heating: `xhigh`).
+- [ ] **Milestone 3 — more**: cooling (901/902), PPS commands (python-bsblan
+      `PPS_HVAC_MODE_TO_BSBLAN`), the hvac action category of 8000
+      (`HeatingCircuitStatus`), time programs read only, a pending
+      protective kept in `/data` across a restart, and an opt-in energy
+      index once 3113 is proven cumulative (with the approved guard of
+      gladys-p1-monitor: hold, bounded acceptance button, never 0).
 
 ## To check on a real adapter
 
@@ -56,6 +60,15 @@ up to date at the end of every milestone.
   unit; resolution and reset unknown.
 - How many HTTP clients BSB-LAN serves at once (Home Assistant and Gladys
   together?): our requests are one at a time.
+
+## To check on a real adapter (0.2.0)
+
+- The types BSB-LAN gives 7870 and 7881 (read as 0 / non-zero), 6800 (a
+  date text) and 6801 (a code and its text) on the RVS13 of t/11458.
+- Whether 1000 is "---" (or absent) on a controller without circuit 2.
+- Whether 1612 accepts down to 10 °C (our floor) and whether the controller
+  enforces 1612 ≤ 1610 itself.
+- The time of a /JQ read back right after a /JS (success needs it by 4.3 s).
 
 ## Decisions
 
@@ -206,6 +219,30 @@ up to date at the end of every milestone.
   `readonly`) decides; else `buswritable` (number, boolean or word; an
   ambiguous value is unknown and refuses); never believed before 5.1.19.
   The status note reads the access of 700. Mutants A1–A7 killed.
+- **0.2.0 decisions (t/11458)**:
+  - Circuit 2 detected, no option: features once 1000 gives a value; while
+    1000 is missing, the other circuit 2 parameters are not read; its
+    setpoint commands read 1000 with their range. An option forcing it on
+    would only allow writing to a circuit the controller does not give.
+  - 712 and 1612 writable on new roles (`heating-reduced-target`,
+    `dhw-reduced-target`); the old probes stay on the devices that have them
+    (no category change of a created feature) and are not offered again.
+  - Bounds: comfort ≥ max(5, 714, 712), ≤ min(35, 716); reduced ≥ max(5,
+    714), ≤ min(35, 716, 710); circuit 2 the same with 1010–1016; 1610 ≥
+    max(10, 1612), ≤ min(65, 1614, ceiling); 1612 ≥ 10, ≤ min(65, 1614,
+    ceiling, 1610).
+  - Protective: no fresh read, no MAC re-read (only refused when another
+    MAC was read); waits for the request BSB-LAN serves (cutting ours would
+    not free the single-client adapter); queued past 3.5 s, sent within
+    30 s; resent from later reads (never its own read back) while the read
+    shows the start value, 3 times; not kept in `/data` (open point).
+  - Success after a read back of the written parameter (rule of Louis);
+    equal to the start value: "not applied yet".
+  - Extra parameters: up to 10, digits only, never one the integration
+    reads, kind fixed at the first value (or by the created feature), a
+    value of another kind not published; `/JK=ALL` refused (hundreds of
+    parameters, minutes of bus, > 64 KB, as many features).
+  - Mutants B1–B18 killed (scratch runner, one at a time).
 - **gladys_version >= 5.1.0** (as the sibling local modules); **category
   `climate`**, transport `local`.
 - **Template demo files** (devices, scenes, widgets, weather and their

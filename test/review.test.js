@@ -46,7 +46,12 @@ async function setup(t, { config = ALLOWED, bsb = fakeBsbLan(), create = true } 
   };
   const connecting = gladys.connect();
   await settle();
-  await advance(SECOND);
+  // The first read: as many latencies as requests (one per poll batch).
+  let up = false;
+  connecting.then(() => (up = true));
+  for (let i = 0; i < 100 && !up; i += 1) {
+    await advance(100);
+  }
   await connecting;
   t.after(() => app.stop());
   if (create) {

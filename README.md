@@ -3,9 +3,10 @@
 [Gladys Assistant](https://gladysassistant.com) external integration for
 boilers and heat pumps with a Siemens controller (ELCO, Brötje, Baxi, MHG,
 Atlantic…) through the **BSB-LAN** adapter and its local JSON API:
-temperatures, comfort setpoint, heating mode, hot water, and three commands
-(mode, comfort setpoint, hot water setpoint capped at 65 °C by default)
-behind an off-by-default option. **Never tested with a real adapter. Not
+heating circuits 1 and 2, hot water, boiler, extra read-only parameters, and
+commands (modes, comfort and reduced setpoints, hot water mode and setpoints
+capped at 65 °C by default) behind an off-by-default option, Protection and
+hot water Off never held back. **Never tested with a real adapter. Not
 affiliated with the BSB-LAN project nor the manufacturers.** BSB-LAN speaks
 plain http: keep it on a trusted network.
 
@@ -25,8 +26,11 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
 
 - **Reads**: `/JI` (MAC, firmware, bus, write access), `/JV` once (JSON-API
   1.0 at least, as python-bsblan), then `/JQ` four parameters at a time,
-  every 30 s (10 s – 10 min). Heating circuit 1, hot water, outside
-  temperature, energy brought in; PPS room-unit parameters on a PPS bus.
+  every 30 s (10 s – 10 min). Heating circuits 1 and 2 (the rest of circuit
+  2 only while its mode 1000 answers), hot water, boiler, outside
+  temperature, energy brought in, up to 10 extra read-only parameters
+  (`extra_parameters`, typed from their /JQ answer, never written); PPS
+  room-unit parameters on a PPS bus.
   Every request is a POST, the passkey first in the path, basic auth only
   with both fields. Answers are capped at 64 KB, read with `JSON.parse`
   (UTF-8, else Latin-1), only own keys of the parameters asked, every value
@@ -44,11 +48,16 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   (never an index).
 - **Commands** (`allow_commands`, off by default): never a switch. The
   command holds the Gate from a fresh read of the value and of the range of
-  the controller (714–716, 1612–1614) to the end of the write, decides on
-  that read only, checks the option and the hot water ceiling again right
-  before the request leaves, leaves within 3.5 s of the click or is refused
-  unsent, and is answered by 4.3 s; a write without status 1 is "sent,
-  without confirmation", followed by reads 5 s and 20 s later. Hot water:
+  the controller (714–716 / 1014–1016, reduced ≤ comfort; 1612–1614,
+  1612 ≤ 1610) to the end of the write, decides on that read only, checks
+  the option and the hot water ceiling again right before the request
+  leaves, leaves within 3.5 s of the click or is refused unsent, and is
+  answered by 4.3 s; success only when a read back shows the value; a write
+  without status 1 is "sent, without confirmation", followed by reads 5 s
+  and 20 s later. **Protective** (Protection on 700/1000, hot water Off on
+  1600): no option, through a pause, a stop or another command, first in
+  the Gate, cancels the commands not sent yet, written again (3 times at
+  most) when a later read still shows the start value. Hot water:
   whole degrees, ceiling 65 °C by default, configurable 40–65 °C, never
   above 65 °C nor the controller's own maximum. Refused on a PPS bus and when BSB-LAN gives the parameter as read only
   (its `readwrite` access, else `buswritable` of `/JI`, never believed before 5.1.19).

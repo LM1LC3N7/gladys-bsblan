@@ -20,7 +20,7 @@ straight on your network.
   its JSON-API version (`/JV`, 1.0 at least): recent BSB-LAN versions do.
 - Its IP address, preferably fixed (set it in your router).
 - For the commands: writing to the bus allowed in the configuration of
-  BSB-LAN.
+  BSB-LAN (`DEFAULT_FLAG 0`, or writing turned on in its settings).
 
 ## What you get
 
@@ -28,21 +28,70 @@ One "Heating (BSB-LAN)" device per adapter, recognised by its MAC address
 (it stays the same when the IP address changes). Each feature appears only
 once the controller gives its value:
 
-| Feature                    | Parameter | Content                                          |
-| -------------------------- | --------- | ------------------------------------------------ |
-| Heating mode               | 700       | A list (commands allowed only), see below        |
-| Heating mode (read)        | 700       | Text: the real mode, an unknown one included     |
-| Heating circuit status     | 8000      | Text of the controller ("Heating mode comfort"…) |
-| Comfort setpoint           | 710       | Thermostat, circuit 1, in °C (command)           |
-| Reduced setpoint           | 712       | In °C, read only                                 |
-| Room temperature           | 8740      | In °C                                            |
-| Outside temperature        | 8700      | In °C                                            |
-| Hot water mode             | 1600      | Text: off, on, eco                               |
-| Hot water setpoint         | 1610      | Water heater, in °C (command, capped)            |
-| Hot water reduced setpoint | 1612      | In °C, read only                                 |
-| Hot water temperature      | 8830      | In °C                                            |
-| Hot water pump running     | 8820      | 0 or 1                                           |
-| Energy brought in (kWh)    | 3113      | In kWh, a plain value (see below)                |
+| Feature                            | Parameter | Content                                          |
+| ---------------------------------- | --------- | ------------------------------------------------ |
+| Heating mode                       | 700       | A list (command), see below                      |
+| Heating mode (read)                | 700       | Text: the real mode, an unknown one included     |
+| Heating circuit status             | 8000      | Text of the controller ("Heating mode comfort"…) |
+| Comfort setpoint                   | 710       | Thermostat, circuit 1, in °C (command)           |
+| Reduced setpoint                   | 712       | Thermostat, circuit 1, in °C (command)           |
+| Room temperature                   | 8740      | In °C                                            |
+| Flow setpoint                      | 8744      | In °C, circuit 1                                 |
+| Flow temperature                   | 8743      | In °C, circuit 1                                 |
+| Heating mode (circuit 2)           | 1000      | A list (command), when the controller has it     |
+| Heating mode, read (circuit 2)     | 1000      | Text                                             |
+| Heating circuit 2 status           | 8001      | Text of the controller                           |
+| Comfort setpoint (circuit 2)       | 1010      | Thermostat, in °C (command)                      |
+| Reduced setpoint (circuit 2)       | 1012      | Thermostat, in °C (command)                      |
+| Flow setpoint / temperature (c. 2) | 8774/8773 | In °C                                            |
+| Outside temperature                | 8700      | In °C                                            |
+| Hot water mode (command)           | 1600      | A list: on, eco, off                             |
+| Hot water mode                     | 1600      | Text: off, on, eco                               |
+| Hot water status                   | 8003      | Text of the controller                           |
+| Hot water setpoint                 | 1610      | Water heater, in °C (command, capped)            |
+| Hot water reduced setpoint         | 1612      | Water heater, in °C (command, capped)            |
+| Hot water temperature              | 8830      | In °C                                            |
+| Hot water pump running             | 8820      | 0 or 1                                           |
+| Boiler status                      | 8005      | Text of the controller                           |
+| Boiler temperature                 | 8310      | In °C                                            |
+| Burner stage 1 signal              | 7881      | 0 or 1 (read only)                               |
+| Burner fault input S3              | 7870      | 0 or 1 (read only)                               |
+| Last fault: date / code            | 6800/6801 | Texts of the controller                          |
+| Energy brought in (kWh)            | 3113      | In kWh, a plain value (see below)                |
+| BSB <number> <name>                | your pick | Extra parameters, read only (below)              |
+
+**Circuit 2** appears only when the controller gives a value for its mode
+(1000); missing or "---", the integration then reads that one parameter
+only at each read. No option forces it: a circuit the controller does not
+give cannot be set, and the detection avoids writing to a circuit that does
+not exist. **Hot water**: its features appear only when the controller
+gives their values.
+
+Devices created before version 0.2.0 keep their former "Reduced setpoint"
+and "Hot water reduced setpoint" features, read only (still updated); the
+settable ones come next to them, to add from the Discovery tab. New
+devices only get the settable ones.
+
+7870, 7881, 6800, 6801, 8005 and 8310 are the numbers of the BSB-LAN
+parameter list; their exact form depends on the controller. Each value is
+checked as it is read: a value missing or of another form is not published.
+
+### Extra parameters (read only)
+
+The **Extra parameters to read** field takes up to 10 BSB-LAN parameter
+numbers separated by commas (for example `8326, 8338`). Each one becomes a
+**read-only** feature named "BSB <number> <name given by BSB-LAN>", from
+BSB-LAN's answer at its first value: a temperature in °C becomes a probe,
+another number a plain value (its unit in the name), a list or a text a
+text. If the form of the value changes later, it is no longer published.
+These parameters are **never written**: there is no free writing. Numbers
+already read by the integration, repeated, over 10 or mistyped are ignored
+and listed in the status of the integration. Each parameter lengthens each
+read (the adapter queries the bus one parameter after the other).
+
+Reading whole categories (`/JK=ALL`) is not offered: hundreds of
+parameters, an answer too large, a bus read of several minutes, and as many
+features in Gladys.
 
 The outside and water temperatures and the read-only setpoints are
 "probes": they do not count as the room temperature in Gladys. Read every 30
@@ -78,18 +127,46 @@ seconds), even after refused credentials.
 
 ## Commands (off by default)
 
-While **Allow the commands** is off, every command is refused. Once on,
-Gladys may change:
+While **Allow the commands** is off, every command is refused, **except
+Protection (frost protection) and hot water Off** (below). Once on, Gladys
+may change:
 
-- the **heating mode** of circuit 1: automatic (time program), comfort,
-  reduced, protection (frost protection);
-- the **comfort setpoint** of circuit 1, to a tenth of a degree, never
-  below the reduced setpoint (712) nor the protection setpoint (714), never
-  above the comfort setpoint max (716) the controller gives, and always
-  within 5–35 °C;
+- the **heating mode** of circuits 1 and 2: automatic (time program),
+  comfort, reduced, protection (frost protection);
+- the **comfort setpoint** of each circuit (710, 1010), to a tenth of a
+  degree, never below its reduced setpoint (712, 1012) nor its protection
+  setpoint (714, 1014), never above its comfort setpoint max (716, 1016),
+  and always within 5–35 °C;
+- the **reduced setpoint** of each circuit (712, 1012), to a tenth of a
+  degree, never below the protection setpoint (714, 1014), never above the
+  comfort setpoint (710, 1010) nor the max (716, 1016), within 5–35 °C;
+- the **hot water mode** (1600): on, eco, off;
 - the **hot water setpoint** (1610), in whole degrees, between the reduced
   setpoint (1612) and the maximum of the controller (1614), up to the
-  **ceiling**.
+  **ceiling**;
+- the **hot water reduced setpoint** (1612), in whole degrees, from 10 °C up
+  to the lowest of the hot water setpoint (1610), the maximum (1614), the
+  ceiling and 65 °C.
+
+### Protection and hot water Off: never held back
+
+The **Protection (frost protection)** mode of circuits 1 and 2 and the hot
+water **Off** mode act as a stop: they leave **even without the option**,
+during a pause (429/5xx), after refused credentials, during another
+command, without a fresh read, and from an unknown mode. They pass before
+every queued request and cancel the commands not sent yet ("a protective
+command came after this one"). BSB-LAN serves one request at a time: they
+wait for the end of the one it serves. Still busy after 3.5 s, Gladys
+answers "the command is queued first and leaves as soon as it is free" and
+sends it as soon as possible (within 30 s). If a later read still shows the
+previous mode, they are written again (3 times at most); if it shows
+another mode (changed on the boiler), they are not.
+
+They are refused only when they cannot leave: no adapter configured, a PPS
+bus, another adapter read at the address (another MAC address), BSB-LAN
+unreachable, or BSB-LAN refusing the write (read-only parameter: status 2).
+They are not kept in `/data`: a restart of the integration between two
+writes forgets them.
 
 BSB-LAN must also allow writing to the bus, and name its bus BSB or LPB:
 otherwise the configuration screen says so and the commands are refused.
@@ -111,7 +188,7 @@ The controller's own nominal maximum (1614), read before each command, still
 applies when it is lower. A setpoint above the
 ceiling is refused on arrival, never sent; the ceiling is checked again
 after the fresh read and right before the request leaves (a ceiling lowered
-during a command stops it). The reduced setpoints, the anti-legionella
+during a command stops it). The maximum (1614), the anti-legionella
 function and the time programs are never changed.
 
 What the ceiling does not do:
@@ -125,8 +202,8 @@ What the ceiling does not do:
 
 ### What Gladys never does
 
-- **Leave an unknown mode** of the controller: the command is refused, the
-  controller keeps control. The **"Heating mode" list then keeps the last
+- **Leave an unknown mode** of the controller, except to Protection: the
+  command is refused, the controller keeps control. The **"Heating mode" list then keeps the last
   known choice** (an unknown mode is not in it): look at "Heating mode
   (read)", which always shows the real mode.
 - Offer a switch: the mode is a **list**, the setpoints are thermostats; a
@@ -137,7 +214,7 @@ What the ceiling does not do:
 
 ### How a command leaves
 
-Before each command, the integration first reads the adapter again
+Before each command (Protection and hot water Off aside), the integration first reads the adapter again
 (`/JI`): it must have the MAC address of the device and a BSB or LPB bus,
 and the fresh read must give the parameter as writable, otherwise nothing is sent (another adapter that took the
 IP address is never commanded). Then it **reads again** the current value
@@ -146,8 +223,11 @@ request runs between that read and the write, and the option (and the
 ceiling) is checked again right before the request leaves. A missing value
 or range refuses the command. A value already in place is not sent again. A
 command that cannot leave within 3.5 seconds is refused unsent; Gladys gets
-its answer within its 5 seconds. BSB-LAN confirms a write with a status 1; a
-status 2 (read-only parameter) gives "BSB-LAN refused the command"; without
+its answer within its 5 seconds. BSB-LAN accepts a write with a status 1;
+the integration **then reads the parameter again** and says success only
+when that read shows the value asked (still the previous one: "read again
+just after, still the previous one"; not read in time: "sent, without
+confirmation"). A status 2 (read-only parameter) gives "BSB-LAN refused the command"; without
 a clear confirmation (silence, dropped connection, 5xx error, status 0),
 Gladys shows "Command sent, without confirmation": check the value, read
 again 5 and 20 seconds later. One command at a time, and at least 3 seconds
@@ -174,9 +254,8 @@ between two writes (otherwise "still running").
   again every 30 minutes.
 - **Controller in °F**: its temperatures are not shown (the features are in
   °C).
-- **One adapter** per integration, **heating circuit 1** only.
-- Not yet: circuit 2, cooling, time programs, commands on a PPS bus, the hot
-  water mode as a command.
+- **One adapter** per integration, **heating circuits 1 and 2**.
+- Not yet: cooling, time programs, commands on a PPS bus, circuit 3.
 - The logs never hold the passkey, the user name, the password nor the
   answers of BSB-LAN; `/data` keeps only the pause and the stop, never a
   secret.

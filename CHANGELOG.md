@@ -10,6 +10,31 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- Heating circuit 2 (mode 1000, comfort 1010 and reduced 1012 setpoints
+  within 1014–1016, status 8001, flow setpoint 8774 and temperature 8773),
+  only when the controller gives its mode.
+- Circuit 1: the reduced setpoint 712 as a command (within 714–716, never
+  above the comfort one), flow setpoint 8744 and temperature 8743.
+- Hot water: the mode 1600 as a command (on, eco, off), the reduced
+  setpoint 1612 as a command (never above 1610, 1614, the ceiling nor
+  65 °C), the status 8003.
+- The boiler, read only: status 8005, temperature 8310, burner stage 1
+  signal 7881, burner fault input S3 7870, last fault date 6800 and code 6801.
+- "Extra parameters to read": up to 10 BSB-LAN parameters, read only,
+  named and typed from BSB-LAN's answer; never written.
+
+### Changed
+
+- Protection (frost protection) of circuits 1 and 2 and hot water Off are
+  never held back: no option needed, through a pause, refused credentials
+  or another command, first in line, written again when a read shows them
+  not applied.
+- A command is a success only once a read back shows the value asked.
+- New devices get the settable reduced setpoints; devices created before
+  keep their read-only "Reduced setpoint" features, still updated.
+
 ### Fixed
 
 - Commands refused as "read only" on BSB-LAN 5.0.x while its info page says

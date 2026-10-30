@@ -35,10 +35,19 @@
 
 import { DEVICE_TRANSPORTS, createLogger } from '@gladysassistant/integration-sdk';
 import { addressKey, connectionKey, normalizeConfig } from './config.js';
-import { DHW_CAP, FEATURES as F, LIMITS, SECOND, SETPOINT_LIMITS, TIMINGS } from './constants.js';
+import {
+  DHW_CAP,
+  EXTRA_PREFIX,
+  FEATURES as F,
+  LIMITS,
+  SECOND,
+  SETPOINT_LIMITS,
+  TIMINGS,
+} from './constants.js';
 import {
   COMMAND_ROLES,
   buildDevice,
+  extraKindOf,
   deviceIds,
   deviceStates,
   parseDeviceId,
@@ -47,12 +56,19 @@ import {
 } from './devices.js';
 import { ERRORS, STATE_TEXTS, T, age, word } from './i18n.js';
 import {
+  DHW_MODES,
+  DHW_MODE_CODES,
+  DHW_SELECTABLE,
+  HC2_REST,
+  MODES,
   MODE_CODES,
   P,
   accessOf,
   POLL,
   SELECTABLE,
   adapterOf,
+  enumerated,
+  temperature,
   apiVersionOf,
   decode,
   identificationOf,
@@ -64,28 +80,121 @@ import { BsbError, CODES, isAuthRefused, isBusy, reasonOf } from './bsblan/error
 import { StatePublisher } from './publisher.js';
 import { memoryStore, normalizeMemory, serializeMemory } from './store.js';
 
-/** What the fresh read of a command asks, by role. */
-const COMMAND_PARAMS = {
-  [F.MODE]: [P.MODE],
-  [F.HEATING_SETPOINT]: [P.COMFORT, P.REDUCED, P.PROTECTIVE, P.COMFORT_MAX],
-  [F.DHW_SETPOINT]: [P.DHW_NOMINAL, P.DHW_REDUCED, P.DHW_NOMINAL_MAX],
+const heating = (id, key, extra) => ({
+  kind: 'heating',
+  id,
+  key,
+  ...extra,
+});
+
+/**
+ * The commands, by role: the parameter written, what the fresh read asks,
+ * the decoded value it compares (src/params.js decode). `protective`: the
+ * choice never held back (Protection, hot water Off).
+ */
+const COMMANDS = {
+  [F.MODE]: {
+    kind: 'mode',
+    id: P.MODE,
+    read: [P.MODE],
+    key: 'mode',
+    options: SELECTABLE,
+    codes: MODE_CODES,
+    names: MODES,
+    protective: 'protection',
+  },
+  [F.HC2_MODE]: {
+    kind: 'mode',
+    id: P.MODE2,
+    read: [P.MODE2],
+    key: 'mode2',
+    options: SELECTABLE,
+    codes: MODE_CODES,
+    names: MODES,
+    protective: 'protection',
+  },
+  [F.DHW_MODE_SELECT]: {
+    kind: 'mode',
+    id: P.DHW_MODE,
+    read: [P.DHW_MODE],
+    key: 'dhwMode',
+    options: DHW_SELECTABLE,
+    codes: DHW_MODE_CODES,
+    names: DHW_MODES,
+    protective: 'off',
+  },
+  // Circuit 1: comfort 710 and reduced 712, within 714 and 716, reduced <= comfort.
+  [F.HEATING_SETPOINT]: heating(P.COMFORT, 'heatingSetpoint', {
+    read: [P.COMFORT, P.REDUCED, P.PROTECTIVE, P.COMFORT_MAX],
+    bounds: ['heatingSetpoint', 'heatingSetpointReduced', 'heatingMin', 'heatingMax'],
+  }),
+  [F.HEATING_REDUCED_TARGET]: heating(P.REDUCED, 'heatingSetpointReduced', {
+    reduced: true,
+    read: [P.COMFORT, P.REDUCED, P.PROTECTIVE, P.COMFORT_MAX],
+    bounds: ['heatingSetpoint', 'heatingSetpointReduced', 'heatingMin', 'heatingMax'],
+  }),
+  // Circuit 2: the same with 1010, 1012, 1014, 1016; its mode (1000) read too (it exists).
+  [F.HC2_SETPOINT]: heating(P.COMFORT2, 'heating2Setpoint', {
+    read: [P.MODE2, P.COMFORT2, P.REDUCED2, P.PROTECTIVE2, P.COMFORT_MAX2],
+    bounds: ['heating2Setpoint', 'heating2SetpointReduced', 'heating2Min', 'heating2Max'],
+  }),
+  [F.HC2_REDUCED_TARGET]: heating(P.REDUCED2, 'heating2SetpointReduced', {
+    reduced: true,
+    read: [P.MODE2, P.COMFORT2, P.REDUCED2, P.PROTECTIVE2, P.COMFORT_MAX2],
+    bounds: ['heating2Setpoint', 'heating2SetpointReduced', 'heating2Min', 'heating2Max'],
+  }),
+  // Hot water: nominal 1610 and reduced 1612, under 1614, the ceiling and 65 °C.
+  [F.DHW_SETPOINT]: {
+    kind: 'dhw',
+    id: P.DHW_NOMINAL,
+    key: 'dhwSetpoint',
+    read: [P.DHW_NOMINAL, P.DHW_REDUCED, P.DHW_NOMINAL_MAX],
+  },
+  [F.DHW_REDUCED_TARGET]: {
+    kind: 'dhw',
+    id: P.DHW_REDUCED,
+    key: 'dhwSetpointReduced',
+    reduced: true,
+    read: [P.DHW_NOMINAL, P.DHW_REDUCED, P.DHW_NOMINAL_MAX],
+  },
 };
 
-/** The decoded values the fresh read of a command refreshes, by role. */
-const COMMAND_VALUES = {
-  [F.MODE]: ['mode'],
-  [F.HEATING_SETPOINT]: ['heatingSetpoint', 'heatingSetpointReduced', 'heatingMin', 'heatingMax'],
-  [F.DHW_SETPOINT]: ['dhwSetpoint', 'dhwSetpointReduced', 'dhwMax'],
+/** The decoded values a read of one parameter gives (to refresh after a command's read). */
+const ID_KEYS = {
+  [P.MODE]: ['mode'],
+  [P.COMFORT]: ['heatingSetpoint'],
+  [P.REDUCED]: ['heatingSetpointReduced'],
+  [P.PROTECTIVE]: ['heatingMin'],
+  [P.COMFORT_MAX]: ['heatingMax'],
+  [P.MODE2]: ['mode2', 'heating2Setpoint', 'heating2SetpointReduced', 'heating2Min', 'heating2Max'],
+  [P.COMFORT2]: ['heating2Setpoint'],
+  [P.REDUCED2]: ['heating2SetpointReduced'],
+  [P.PROTECTIVE2]: ['heating2Min'],
+  [P.COMFORT_MAX2]: ['heating2Max'],
+  [P.DHW_MODE]: ['dhwMode'],
+  [P.DHW_NOMINAL]: ['dhwSetpoint'],
+  [P.DHW_REDUCED]: ['dhwSetpointReduced'],
+  [P.DHW_NOMINAL_MAX]: ['dhwMax'],
 };
 
 const tenth = (value) => (value === undefined ? undefined : Math.round(value * 10));
 
 /** What a command compares, for a role: the mode key or the setpoint in tenths of °C. */
 function comparable(role, values) {
-  if (role === F.MODE) {
-    return values?.mode?.key;
+  const spec = COMMANDS[role];
+  if (spec.kind === 'mode') {
+    return values?.[spec.key]?.key;
   }
-  return tenth(role === F.HEATING_SETPOINT ? values?.heatingSetpoint : values?.dhwSetpoint);
+  return tenth(values?.[spec.key]);
+}
+
+/** The value one entry read back gives, for a role (the same scale as `comparable`). */
+function readBack(spec, entry) {
+  if (spec.kind === 'mode') {
+    const read = enumerated(entry);
+    return read && Object.hasOwn(spec.names, read.code) ? spec.names[read.code] : undefined;
+  }
+  return tenth(temperature(entry, 0, 95).value);
 }
 
 /** A number sent by Gladys: a finite number, or a plain decimal text ('' and null are not 0). */
@@ -150,6 +259,10 @@ export class BsbLanApp {
     this.readSeq = 0;
     /** id -> { seq, entry }: the last fresh read of a command, per parameter. */
     this.freshReads = new Map();
+    /** Increases at every protective command: a command that arrived before never leaves after. */
+    this.stopEpoch = 0;
+    /** mac -> { id: { kind, name, unit } }: the read-only parameters of the configuration, as first seen. */
+    this.extraSeen = new Map();
   }
 
   // --- Lifecycle -------------------------------------------------------------
@@ -180,6 +293,8 @@ export class BsbLanApp {
       status: undefined,
       /** The values of the last read (src/params.js decode). */
       values: undefined,
+      /** Heating circuit 2: true, false (its mode 1000 missing), undefined before a read. */
+      hc2: undefined,
       timer: undefined,
       running: undefined,
       followUps: new Set(),
@@ -431,9 +546,16 @@ export class BsbLanApp {
       adapter.apiVersion = version;
     }
     const ids = [...POLL[info.bus]];
+    if (info.bus === 'bsb' && adapter.hc2 !== false) {
+      // Circuit 2: its other parameters while its mode (1000) is not known missing.
+      ids.push(...HC2_REST);
+    }
     if (info.bus === 'bsb' && !adapter.model) {
       ids.push(P.IDENTIFICATION);
     }
+    // The read-only parameters typed in the configuration, last.
+    const extras = this.config.extraParams.filter((id) => !ids.includes(id));
+    ids.push(...extras);
     // A few parameters per request: the Gate frees between them, so a
     // command never waits for a whole poll.
     const merged = {};
@@ -467,7 +589,9 @@ export class BsbLanApp {
         }
       }
     }
-    const values = decode(info.bus, merged);
+    const values = decode(info.bus, merged, extras);
+    adapter.hc2 = info.bus === 'bsb' ? values.mode2 !== undefined : false;
+    this.rememberExtras(info.mac, values.extra);
     adapter.model ??= identificationOf(merged);
     adapter.info = info;
     adapter.mac = info.mac;
@@ -599,6 +723,39 @@ export class BsbLanApp {
     return seen;
   }
 
+  /** The kind, name and unit of each read-only parameter, fixed at its first value. */
+  rememberExtras(mac, extra) {
+    const seen = this.extraSeen.get(mac) ?? {};
+    for (const [id, read] of Object.entries(extra ?? {})) {
+      if (!Object.hasOwn(seen, id)) {
+        seen[id] = { kind: read.kind, name: read.name, unit: read.unit };
+      }
+    }
+    this.extraSeen.set(mac, seen);
+  }
+
+  /** id -> kind of the read-only parameters: the created feature's, else the first value's. */
+  extraKinds(mac) {
+    const kinds = {};
+    for (const [id, seen] of Object.entries(this.extraSeen.get(mac) ?? {})) {
+      kinds[id] = seen.kind;
+    }
+    const ids = deviceIds(this.gladys, mac);
+    for (const f of this.createdDevice(ids.device)?.features ?? []) {
+      const parsed = parseFeatureId(f?.external_id);
+      if (parsed?.role.startsWith(EXTRA_PREFIX)) {
+        const kind = extraKindOf(f);
+        const id = parsed.role.slice(EXTRA_PREFIX.length);
+        if (kind) {
+          kinds[id] = kind;
+        } else {
+          delete kinds[id];
+        }
+      }
+    }
+    return kinds;
+  }
+
   // --- Gladys ----------------------------------------------------------------
 
   async publishAll() {
@@ -631,6 +788,7 @@ export class BsbLanApp {
           model: mac === this.adapter?.mac ? this.adapter.model : undefined,
           language: this.config.language,
           created: this.createdDevice(deviceIds(this.gladys, mac).device),
+          extras: this.extraSeen.get(mac) ?? {},
         }),
       )
       // Never a device without a feature (a controller that gave no value).
@@ -668,6 +826,7 @@ export class BsbLanApp {
         status,
         bus: online ? this.adapter.info.bus : undefined,
         language: this.config.language,
+        extraKinds: this.extraKinds(mac),
       });
       for (const { device_feature_external_id: id, ...value } of states) {
         if (created.has(id)) {
@@ -757,6 +916,9 @@ export class BsbLanApp {
     if (created.length > 0 && !created.some((entry) => entry.mac === adapter.mac)) {
       notes.push(T.notes.otherAdapter);
     }
+    if (this.config.extraIgnored.length > 0) {
+      notes.push(T.notes.extraIgnored(this.config.extraIgnored));
+    }
     return [
       true,
       T.connected(
@@ -823,21 +985,28 @@ export class BsbLanApp {
 
   /**
    * The value of a command, checked strictly (null, '' or 'abc' are not a
-   * number; a mode is one of the exact keys of the list), within the hard
-   * limits. Returns `{ id, text, value, key? }`.
+   * number; a mode is one of the exact keys of its list), within the hard
+   * limits. Returns `{ id, text, value, key?, protective? }`.
    */
   parseCommand(role, value) {
-    if (role === F.MODE) {
-      if (typeof value !== 'string' || !SELECTABLE.includes(value)) {
+    const spec = COMMANDS[role];
+    if (spec.kind === 'mode') {
+      if (typeof value !== 'string' || !spec.options.includes(value)) {
         throw this.refusal(ERRORS.badMode);
       }
-      return { id: P.MODE, text: String(MODE_CODES[value]), value, key: value };
+      return {
+        id: spec.id,
+        text: String(spec.codes[value]),
+        value,
+        key: value,
+        protective: value === spec.protective,
+      };
     }
     const number = numberOf(value);
     if (number === undefined) {
       throw this.refusal(ERRORS.badNumber);
     }
-    if (role === F.HEATING_SETPOINT) {
+    if (spec.kind === 'heating') {
       const { min, max } = SETPOINT_LIMITS.heating;
       if (Math.abs(number * 10 - Math.round(number * 10)) > 1e-6) {
         throw this.refusal(ERRORS.badStep(0.1));
@@ -846,10 +1015,10 @@ export class BsbLanApp {
         throw this.refusal(ERRORS.outOfRange(min, max));
       }
       const rounded = Math.round(number * 10) / 10;
-      return { id: P.COMFORT, text: rounded.toFixed(1), value: rounded };
+      return { id: spec.id, text: rounded.toFixed(1), value: rounded };
     }
-    // The hot water setpoint: whole degrees, never above the hard ceiling
-    // nor the configured one.
+    // A hot water setpoint: whole degrees, never above the hard ceiling nor
+    // the configured one.
     if (!Number.isInteger(number)) {
       throw this.refusal(ERRORS.badStep(1));
     }
@@ -860,7 +1029,7 @@ export class BsbLanApp {
     if (number > this.config.dhwCap) {
       throw this.refusal(ERRORS.dhwCap(this.config.dhwCap));
     }
-    return { id: P.DHW_NOMINAL, text: String(number), value: number };
+    return { id: spec.id, text: String(number), value: number };
   }
 
   async setValue(_device, feature, value) {
@@ -871,13 +1040,17 @@ export class BsbLanApp {
       throw this.refusal(ERRORS.readOnly);
     }
     const wanted = this.parseCommand(target.role, value);
+    if (wanted.protective) {
+      // Protection (frost protection) and hot water Off: never held back.
+      return this.protect(target, wanted, received);
+    }
     if (!this.config.allowCommands) {
       throw this.refusal(ERRORS.disabled);
     }
     if (this.inFlight || received < this.quietUntil) {
       throw this.refusal(ERRORS.stillRunning);
     }
-    const promise = this.command(target, wanted, received);
+    const promise = this.command(target, wanted, received, this.stopEpoch);
     this.inFlight = promise;
     try {
       return await promise;
@@ -889,9 +1062,13 @@ export class BsbLanApp {
   }
 
   /** The checks before sending, on the latest configuration and state. */
-  checkBeforeSend(generation, { mac, role }, wanted) {
+  checkBeforeSend(generation, { mac, role }, wanted, epoch) {
     if (!this.config.allowCommands) {
       throw this.refusal(ERRORS.disabled);
+    }
+    // A protective command arrived since: this one never leaves after it.
+    if (epoch !== this.stopEpoch) {
+      throw this.refusal(ERRORS.overtaken);
     }
     if (this.blockedUntil() > 0) {
       throw this.refusal(ERRORS.paused);
@@ -902,14 +1079,14 @@ export class BsbLanApp {
     this.checkAdapter(this.adapter.info);
     // The ceiling may have been lowered since the command arrived.
     if (
-      role === F.DHW_SETPOINT &&
+      COMMANDS[role].kind === 'dhw' &&
       (wanted.value > this.config.dhwCap || wanted.value > DHW_CAP.max)
     ) {
       throw this.refusal(ERRORS.dhwCap(this.config.dhwCap));
     }
   }
 
-  /** The bus and the write access of an adapter (/JI) allow a command. */
+  /** The bus of an adapter (/JI) allows a command. */
   checkAdapter(info) {
     if (info.bus === 'pps') {
       throw this.refusal(ERRORS.pps);
@@ -936,10 +1113,10 @@ export class BsbLanApp {
     }
   }
 
-  async command(target, wanted, received) {
+  async command(target, wanted, received, epoch) {
     const generation = this.generation;
     const sendBy = received + TIMINGS.commandSendBy;
-    this.checkBeforeSend(generation, target, wanted);
+    this.checkBeforeSend(generation, target, wanted, epoch);
     const adapter = this.adapter;
     const readBy = Math.min(this.now() + TIMINGS.commandReadMax, sendBy - TIMINGS.commandMinSend);
     if (readBy - this.now() < TIMINGS.commandMinRead) {
@@ -957,6 +1134,7 @@ export class BsbLanApp {
             received,
             sendBy,
             readBy,
+            epoch,
           }),
         { startBy: readBy - TIMINGS.commandMinRead },
       );
@@ -971,13 +1149,45 @@ export class BsbLanApp {
     }
   }
 
+  /** Keeps what a command's read gave: the values, the access, the sequence (src/app.js read). */
+  keepFresh(adapter, mac, ids, picked) {
+    const fresh = decode('bsb', picked);
+    for (const id of ids) {
+      for (const key of ID_KEYS[id] ?? []) {
+        adapter.values[key] = fresh[key];
+      }
+    }
+    adapter.values.access = { ...adapter.values.access };
+    for (const id of ids) {
+      if (fresh.access[id] === undefined) {
+        delete adapter.values.access[id];
+      } else {
+        adapter.values.access[id] = fresh.access[id];
+      }
+    }
+    const seq = ++this.readSeq;
+    for (const id of ids) {
+      this.freshReads.set(id, { seq, entry: picked[id] });
+    }
+    this.observe(mac, adapter.values);
+    // Shown in the background: the ack never waits for Gladys.
+    this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
+    return fresh;
+  }
+
   /** The command inside its session (the Gate is held: `raw` requests). */
-  async commandSession(raw, target, wanted, { generation, adapter, received, sendBy, readBy }) {
+  async commandSession(
+    raw,
+    target,
+    wanted,
+    { generation, adapter, received, sendBy, readBy, epoch },
+  ) {
     const { mac, role } = target;
+    const spec = COMMANDS[role];
     // First /JI, read now: the adapter answering at this address is the one
-    // of the device (its MAC), on a BSB or LPB bus. Then the
-    // parameters, never the values in memory. Both within the read budget.
-    const ids = COMMAND_PARAMS[role];
+    // of the device (its MAC), on a BSB or LPB bus. Then the parameters,
+    // never the values in memory. Both within the read budget.
+    const ids = spec.read;
     let answer;
     try {
       const info = adapterOf(await raw.info({ answerBy: readBy }));
@@ -1010,25 +1220,7 @@ export class BsbLanApp {
         picked[id] = answer[id];
       }
     }
-    const fresh = decode('bsb', picked);
-    for (const key of COMMAND_VALUES[role]) {
-      adapter.values[key] = fresh[key];
-    }
-    adapter.values.access = { ...adapter.values.access };
-    for (const id of ids) {
-      if (fresh.access[id] === undefined) {
-        delete adapter.values.access[id];
-      } else {
-        adapter.values.access[id] = fresh.access[id];
-      }
-    }
-    const seq = ++this.readSeq;
-    for (const id of ids) {
-      this.freshReads.set(id, { seq, entry: picked[id] });
-    }
-    this.observe(mac, adapter.values);
-    // Shown in the background: the ack never waits for Gladys.
-    this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
+    const fresh = this.keepFresh(adapter, mac, ids, picked);
 
     this.checkRange(role, wanted, fresh);
     // Read only (the parameter, or the whole bus): refused before anything leaves.
@@ -1037,27 +1229,40 @@ export class BsbLanApp {
     if (current === undefined) {
       throw this.refusal(ERRORS.missingValue);
     }
-    const expected = role === F.MODE ? wanted.key : tenth(wanted.value);
+    const expected = spec.kind === 'mode' ? wanted.key : tenth(wanted.value);
     const key = `${mac}:${role}`;
     if (current === expected && !this.guardActive(key)) {
       // Already so: nothing sent.
       return;
     }
     // The option may have been turned off during the read: checked again.
-    this.checkBeforeSend(generation, target, wanted);
+    this.checkBeforeSend(generation, target, wanted, epoch);
     if (this.now() > sendBy) {
       throw this.refusal(ERRORS.tooSlow);
     }
+    await this.writeAndConfirm(raw, target, wanted, {
+      plan: { from: current, expected },
+      received,
+      sendBy,
+      // The very last check, right before the request leaves.
+      beforeSend: () => this.checkBeforeSend(generation, target, wanted, epoch),
+    });
+  }
+
+  /**
+   * The write, then a read of the same parameter: success only when that
+   * read shows the value asked. Equal to the value before: "not applied
+   * yet"; not read in time: "sent, without confirmation".
+   */
+  async writeAndConfirm(raw, target, wanted, { plan, received, sendBy, beforeSend, protective }) {
+    const { mac, role } = target;
+    const spec = COMMANDS[role];
+    const key = `${mac}:${role}`;
+    const answerBy = received + TIMINGS.commandAnswerBy;
     this.logger.info(`BSB-LAN ${role}: ${wanted.value}`);
-    const plan = { from: current, expected };
     let written;
     try {
-      written = await raw.set(wanted.id, wanted.text, {
-        startBy: sendBy,
-        answerBy: received + TIMINGS.commandAnswerBy,
-        // The very last check, right before the request leaves.
-        beforeSend: () => this.checkBeforeSend(generation, target, wanted),
-      });
+      written = await raw.set(wanted.id, wanted.text, { startBy: sendBy, answerBy, beforeSend });
     } catch (err) {
       if (err.beforeSend) {
         throw err;
@@ -1077,7 +1282,7 @@ export class BsbLanApp {
       // A silence, a dropped connection, a 5xx, an answer that is not JSON:
       // the write may have reached the controller.
       this.block(err);
-      this.guard(key, plan);
+      this.guard(key, plan, protective);
       this.followUp();
       throw this.refusal(ERRORS.sentUnconfirmed(reason));
     }
@@ -1086,32 +1291,156 @@ export class BsbLanApp {
       this.followUp();
       throw this.refusal(ERRORS.refused('BSB-LAN status 2'));
     }
-    this.guard(key, plan);
+    this.guard(key, plan, protective);
     this.followUp();
     if (outcome !== 'ok') {
       throw this.refusal(ERRORS.sentUnconfirmed('no status 1'));
     }
+    // Read back, in what is left of the answer budget.
+    if (answerBy - this.now() < TIMINGS.commandMinRead) {
+      throw this.refusal(ERRORS.sentUnconfirmed('not read back in time'));
+    }
+    let seen;
+    try {
+      const again = await raw.query([wanted.id], { answerBy });
+      const entry = Object.hasOwn(again, wanted.id) ? again[wanted.id] : undefined;
+      seen = readBack(spec, entry);
+      const adapter = this.adapter;
+      if (seen !== undefined && adapter?.values && adapter.mac === mac) {
+        const seq = ++this.readSeq;
+        this.freshReads.set(wanted.id, { seq, entry });
+        adapter.values[spec.key] =
+          spec.kind === 'mode'
+            ? { code: spec.codes[seen], key: seen }
+            : temperature(entry, 0, 95).value;
+        // Its own read back never writes it again (only a later read does).
+        this.observe(mac, adapter.values, { resend: false });
+        this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
+      }
+    } catch (err) {
+      if (!(err instanceof BsbError)) {
+        throw err;
+      }
+      this.block(err);
+      throw this.refusal(ERRORS.sentUnconfirmed(`not read back: ${reasonOf(err)}`));
+    }
+    if (seen === plan.expected) {
+      return;
+    }
+    if (seen !== undefined && seen === plan.from) {
+      throw this.refusal(ERRORS.notApplied);
+    }
+    throw this.refusal(ERRORS.sentUnconfirmed('not read back'));
+  }
+
+  /**
+   * Protection (frost protection, 700 or 1000 = 0) or hot water Off
+   * (1600 = 0): never held back by the option, a pause, refused
+   * credentials, another command, a missing or old read, the range. It
+   * passes before every queued request and cancels the commands not sent
+   * yet; it waits only for the request the adapter is serving (BSB-LAN
+   * serves one at a time: cutting ours would not free it sooner). Written
+   * without a fresh read; refused only when it cannot leave: no adapter
+   * configured, a PPS bus, another adapter read at the address, or BSB-LAN
+   * busy past the budget (then sent as soon as it is free, within 30 s).
+   */
+  async protect(target, wanted, received, resend = 0) {
+    const adapter = this.adapter;
+    if (!adapter) {
+      throw this.refusal(ERRORS.noAdapter);
+    }
+    if (adapter.info?.bus === 'pps') {
+      throw this.refusal(ERRORS.pps);
+    }
+    if (adapter.mac && adapter.mac !== target.mac) {
+      throw this.refusal(ERRORS.unknownDevice);
+    }
+    this.stopEpoch += 1;
+    const generation = this.generation;
+    const { mac, role } = target;
+    // The value in memory only decides whether a contradicted write is sent again.
+    const from = comparable(role, adapter.values);
+    const queuedAt = this.now();
+    const session = adapter.client.session(
+      (raw) => {
+        // Late (BSB-LAN busy): its own budget, from now.
+        const base =
+          this.now() > received + TIMINGS.commandSendBy - TIMINGS.commandMinSend
+            ? this.now()
+            : received;
+        return this.writeAndConfirm(raw, target, wanted, {
+          plan: { from, expected: wanted.key, resend },
+          received: base,
+          sendBy: base + TIMINGS.commandSendBy,
+          protective: true,
+          beforeSend: () => {
+            if (generation !== this.generation || this.adapter !== adapter) {
+              throw this.refusal(ERRORS.unknownDevice);
+            }
+            if (adapter.mac && adapter.mac !== mac) {
+              throw this.refusal(ERRORS.unknownDevice);
+            }
+          },
+        });
+      },
+      { urgent: true, startBy: queuedAt + TIMINGS.protectiveWait },
+    );
+    const mapped = session.catch((err) => {
+      if (err.code === CODES.LATE) {
+        throw this.refusal(ERRORS.tooSlow);
+      }
+      if (err.code === CODES.CLOSED) {
+        throw this.refusal(ERRORS.unknownDevice);
+      }
+      throw err;
+    });
+    // The ack never waits past the budget: still queued then, it goes on.
+    let handle;
+    const late = new Promise((resolve) => {
+      handle = this.timers.setTimeout(
+        () => resolve('late'),
+        Math.max(0, received + TIMINGS.commandSendBy - TIMINGS.commandMinSend - this.now()),
+      );
+    });
+    const first = await Promise.race([
+      mapped.then(
+        () => 'done',
+        () => 'done',
+      ),
+      late,
+    ]);
+    this.timers.clearTimeout(handle);
+    if (first === 'late') {
+      mapped.catch((err) =>
+        this.logger.warn(`BSB-LAN ${role} ${wanted.value} (queued): ${err.message}`),
+      );
+      throw this.refusal(ERRORS.protectiveQueued);
+    }
+    return mapped;
   }
 
   /** The range of the controller, read just now (never the values in memory). */
   checkRange(role, wanted, fresh) {
-    if (role === F.MODE) {
-      if (fresh.mode === undefined) {
+    const spec = COMMANDS[role];
+    if (spec.kind === 'mode') {
+      const mode = fresh[spec.key];
+      if (mode === undefined) {
         throw this.refusal(ERRORS.missingValue);
       }
-      if (!fresh.mode.key) {
-        throw this.refusal(ERRORS.protectedMode(STATE_TEXTS.unknownMode(fresh.mode.code)));
+      if (!mode.key) {
+        throw this.refusal(ERRORS.protectedMode(STATE_TEXTS.unknownMode(mode.code)));
       }
       return;
     }
-    if (role === F.HEATING_SETPOINT) {
-      const { heatingSetpoint, heatingSetpointReduced, heatingMin, heatingMax } = fresh;
-      if ([heatingSetpoint, heatingSetpointReduced, heatingMin, heatingMax].includes(undefined)) {
+    if (spec.kind === 'heating') {
+      const [comfort, reduced, min, max] = spec.bounds.map((key) => fresh[key]);
+      if ([comfort, reduced, min, max].includes(undefined)) {
         throw this.refusal(ERRORS.missingValue);
       }
-      // The comfort setpoint never below the reduced one (712) nor the protection one (714).
-      const low = Math.max(SETPOINT_LIMITS.heating.min, heatingMin, heatingSetpointReduced);
-      const high = Math.min(SETPOINT_LIMITS.heating.max, heatingMax);
+      // Comfort: never below the reduced setpoint nor the protection one.
+      // Reduced: never below the protection one, never above the comfort one.
+      const low = Math.max(SETPOINT_LIMITS.heating.min, min, spec.reduced ? -Infinity : reduced);
+      const high = Math.min(SETPOINT_LIMITS.heating.max, max, spec.reduced ? comfort : Infinity);
       if (low > high) {
         throw this.refusal(ERRORS.missingValue);
       }
@@ -1126,6 +1455,18 @@ export class BsbLanApp {
     }
     if (wanted.value > this.config.dhwCap) {
       throw this.refusal(ERRORS.dhwCap(this.config.dhwCap));
+    }
+    if (spec.reduced) {
+      // 1612 never above 1610, 1614, the ceiling nor 65 °C.
+      const high = Math.min(SETPOINT_LIMITS.dhw.max, dhwMax, this.config.dhwCap, dhwSetpoint);
+      const low = SETPOINT_LIMITS.dhw.min;
+      if (low > high) {
+        throw this.refusal(ERRORS.missingValue);
+      }
+      if (wanted.value < low || wanted.value > high) {
+        throw this.refusal(ERRORS.outOfDeviceRange(low, high));
+      }
+      return;
     }
     // 1610 lies between the reduced setpoint (1612) and its max (1614), and
     // never above the ceiling.
@@ -1169,10 +1510,17 @@ export class BsbLanApp {
    * After a command, until a read shows it: a new command is always sent,
    * never answered "already so" on a value that may not show the previous
    * one yet. The start value is kept: a read equal to it lifts nothing
-   * until a move was seen.
+   * until a move was seen. A protective one is written again by a read that
+   * still shows the start value (3 times at most); a read of another value
+   * (a change at the boiler, or by a later command) lifts it.
    */
-  guard(key, plan) {
-    this.guards.set(key, { ...plan, moved: false, until: this.now() + TIMINGS.guard });
+  guard(key, plan, protective = false) {
+    this.guards.set(key, {
+      ...plan,
+      protective,
+      moved: false,
+      until: this.now() + TIMINGS.guard,
+    });
   }
 
   guardActive(key) {
@@ -1185,7 +1533,7 @@ export class BsbLanApp {
   }
 
   /** A read, through the guards of its adapter: never lifted on an unknown value. */
-  observe(mac, values) {
+  observe(mac, values, { resend = true } = {}) {
     for (const role of COMMAND_ROLES) {
       const key = `${mac}:${role}`;
       if (!this.guardActive(key)) {
@@ -1196,6 +1544,18 @@ export class BsbLanApp {
         continue;
       }
       const guard = this.guards.get(key);
+      if (guard.protective && value !== guard.expected) {
+        if (value !== guard.from || guard.from === undefined) {
+          // Not the start value: someone set it since (or no start known): never fought.
+          this.guards.delete(key);
+          continue;
+        }
+        if (resend && (guard.resend ?? 0) < TIMINGS.protectiveResends && !guard.resending) {
+          guard.resending = true;
+          this.resendProtective(mac, role, guard);
+        }
+        continue;
+      }
       if (value !== guard.from) {
         guard.moved = true;
       }
@@ -1203,6 +1563,24 @@ export class BsbLanApp {
         this.guards.delete(key);
       }
     }
+  }
+
+  /** A protective write a read shows not applied: written again (after the read, never inside it). */
+  resendProtective(mac, role, guard) {
+    const spec = COMMANDS[role];
+    const wanted = {
+      id: spec.id,
+      text: String(spec.codes[guard.expected]),
+      value: guard.expected,
+      key: guard.expected,
+      protective: true,
+    };
+    this.timers.setTimeout(() => {
+      this.logger.warn(`BSB-LAN ${role}: ${guard.expected} not applied, written again`);
+      this.protect({ mac, role }, wanted, this.now(), (guard.resend ?? 0) + 1).catch((err) =>
+        this.logger.warn(`BSB-LAN ${role} written again: ${err.message}`),
+      );
+    }, 0);
   }
 }
 

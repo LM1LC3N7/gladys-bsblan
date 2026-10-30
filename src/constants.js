@@ -29,7 +29,36 @@ export const FEATURES = {
   TEMP_DHW: 'temperature-dhw',
   DHW_PUMP: 'dhw-pump',
   ENERGY_TOTAL: 'energy-total',
+  // 0.2.0: heating circuit 1, more.
+  /** 712, writable (`heating-setpoint-reduced` stays read only, on the devices that have it). */
+  HEATING_REDUCED_TARGET: 'heating-reduced-target',
+  FLOW_SETPOINT: 'flow-setpoint',
+  TEMP_FLOW: 'temperature-flow',
+  // Heating circuit 2 (1000 series), when the controller has it.
+  HC2_MODE: 'hc2-mode',
+  HC2_MODE_STATE: 'hc2-operating-mode',
+  HC2_STATUS: 'hc2-status',
+  HC2_SETPOINT: 'hc2-setpoint',
+  HC2_REDUCED_TARGET: 'hc2-reduced-target',
+  HC2_FLOW_SETPOINT: 'hc2-flow-setpoint',
+  HC2_TEMP_FLOW: 'hc2-temperature-flow',
+  // Hot water: the mode as a command, its status, 1612 writable.
+  DHW_MODE_SELECT: 'dhw-mode-select',
+  DHW_STATUS: 'dhw-status',
+  /** 1612, writable (`dhw-setpoint-reduced` stays read only, on the devices that have it). */
+  DHW_REDUCED_TARGET: 'dhw-reduced-target',
+  // The boiler, read only.
+  BOILER_STATUS: 'boiler-status',
+  TEMP_BOILER: 'temperature-boiler',
+  BURNER_STAGE_1: 'burner-stage-1',
+  BURNER_FAULT: 'burner-fault-s3',
+  LAST_FAULT_DATE: 'last-fault-date',
+  LAST_FAULT_CODE: 'last-fault-code',
 };
+
+/** Read-only parameters typed in the configuration: role `param-<id>`. */
+export const EXTRA_PREFIX = 'param-';
+export const EXTRA_LIMIT = 10;
 
 export const ACTIONS = {
   TEST_CONNECTION: 'test_connection',
@@ -76,6 +105,8 @@ export const LIMITS = {
   parametersPerRead: 4,
   /** Texts of the controller (status, mode names) are cut to this length. */
   textLength: 120,
+  /** A read-only parameter typed in the configuration: plain numbers within ±this. */
+  extraNumber: 1_000_000,
 };
 
 export const SECOND = 1_000;
@@ -121,4 +152,8 @@ export const TIMINGS = {
   followUps: [5 * SECOND, 20 * SECOND],
   /** A sent command keeps its guard until a read shows what it asked, or 90 s. */
   guard: 90 * SECOND,
+  /** A protective command (Protection, hot water Off) not seen applied is written again, at most so often. */
+  protectiveResends: 3,
+  /** A protective command waits for a busy adapter this long at most (the ack goes at 3.5 s). */
+  protectiveWait: 30 * SECOND,
 };

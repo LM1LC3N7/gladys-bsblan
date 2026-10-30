@@ -21,8 +21,8 @@
         "fr": "Votre adaptateur BSB-LAN"
       },
       "description": {
-        "en": "Shows your boiler or heat pump with a Siemens controller (ELCO, Brötje, Baxi, MHG, Atlantic…) in Gladys through the BSB-LAN adapter wired to its BSB, LPB or PPS bus, on your local network, without any cloud: room, outside and hot water temperatures, comfort setpoint, heating mode, hot water. Enter the IP address of the adapter (give it a fixed address in your router), save, then add the device from the Discovery tab. Heating circuit 1 only. Never tested with a real adapter. Not affiliated with the BSB-LAN project nor the manufacturers.",
-        "fr": "Affiche votre chaudière ou pompe à chaleur à régulateur Siemens (ELCO, Brötje, Baxi, MHG, Atlantic…) dans Gladys par l'adaptateur BSB-LAN relié à son bus BSB, LPB ou PPS, sur votre réseau local, sans cloud : températures de la pièce, extérieure et de l'eau chaude, consigne confort, mode de chauffage, eau chaude. Saisissez l'adresse IP de l'adaptateur (donnez-lui une adresse fixe dans votre box), enregistrez, puis ajoutez l'appareil depuis l'onglet Découverte. Circuit de chauffage 1 seulement. Jamais testé avec un vrai adaptateur. Sans lien avec le projet BSB-LAN ni les fabricants."
+        "en": "Shows your boiler or heat pump with a Siemens controller (ELCO, Brötje, Baxi, MHG, Atlantic…) in Gladys through the BSB-LAN adapter wired to its BSB, LPB or PPS bus, on your local network, without any cloud: heating circuits 1 and 2 (the second when the controller has it), hot water, boiler, outside temperature. Enter the IP address of the adapter (give it a fixed address in your router), save, then add the device from the Discovery tab. Never tested with a real adapter. Not affiliated with the BSB-LAN project nor the manufacturers.",
+        "fr": "Affiche votre chaudière ou pompe à chaleur à régulateur Siemens (ELCO, Brötje, Baxi, MHG, Atlantic…) dans Gladys par l'adaptateur BSB-LAN relié à son bus BSB, LPB ou PPS, sur votre réseau local, sans cloud : circuits de chauffage 1 et 2 (le second si le régulateur l'a), eau chaude, chaudière, température extérieure. Saisissez l'adresse IP de l'adaptateur (donnez-lui une adresse fixe dans votre box), enregistrez, puis ajoutez l'appareil depuis l'onglet Découverte. Jamais testé avec un vrai adaptateur. Sans lien avec le projet BSB-LAN ni les fabricants."
       },
       "links": [
         {
@@ -114,8 +114,8 @@
         "fr": "Commandes"
       },
       "description": {
-        "en": "By default Gladys only reads. Once allowed, the dashboard, the scenes and the voice assistants can change the heating mode, the comfort setpoint of heating circuit 1 and the hot water setpoint, within the range the controller gives, the hot water never above the ceiling below. BSB-LAN must also allow writing to the bus in its own configuration.",
-        "fr": "Par défaut Gladys ne fait que lire. Une fois autorisés, le tableau de bord, les scènes et les assistants vocaux peuvent changer le mode de chauffage, la consigne confort du circuit 1 et la consigne d'eau chaude, dans la plage que donne le régulateur, l'eau chaude jamais au-dessus du plafond ci-dessous. BSB-LAN doit aussi autoriser l'écriture sur le bus dans sa propre configuration."
+        "en": "By default Gladys only reads. Once allowed, the dashboard, the scenes and the voice assistants can change the modes and the comfort and reduced setpoints of heating circuits 1 and 2, the hot water mode and setpoints, within the range the controller gives, the hot water never above the ceiling below. Protection (frost protection) and hot water Off are never held back, even when not allowed. BSB-LAN must also allow writing to the bus in its own configuration.",
+        "fr": "Par défaut Gladys ne fait que lire. Une fois autorisés, le tableau de bord, les scènes et les assistants vocaux peuvent changer les modes et les consignes confort et réduite des circuits 1 et 2, le mode et les consignes de l'eau chaude, dans la plage que donne le régulateur, l'eau chaude jamais au-dessus du plafond ci-dessous. Protection (hors-gel) et eau chaude à l'arrêt ne sont jamais bloqués, même sans autorisation. BSB-LAN doit aussi autoriser l'écriture sur le bus dans sa propre configuration."
       }
     },
     {
@@ -126,8 +126,8 @@
         "fr": "Autoriser les commandes"
       },
       "description": {
-        "en": "Off by default. Off: every command is refused.",
-        "fr": "Désactivé par défaut. Désactivé : toute commande est refusée."
+        "en": "Off by default. Off: every command is refused, except Protection (frost protection) and hot water Off.",
+        "fr": "Désactivé par défaut. Désactivé : toute commande est refusée, sauf Protection (hors-gel) et eau chaude à l'arrêt."
       },
       "required": false,
       "default": false
@@ -163,6 +163,24 @@
       "default": 30,
       "min": 10,
       "max": 600
+    },
+    {
+      "key": "extra_parameters",
+      "type": "string",
+      "label": {
+        "en": "Extra parameters to read (read only)",
+        "fr": "Paramètres supplémentaires à lire (lecture seule)"
+      },
+      "description": {
+        "en": "Optional: up to 10 BSB-LAN parameter numbers, separated by commas (for example 8326, 8338). Each one becomes a read-only feature, named and typed as BSB-LAN describes it; never written. Every parameter adds time to each read of the bus.",
+        "fr": "Facultatif : jusqu'à 10 numéros de paramètres BSB-LAN, séparés par des virgules (par exemple 8326, 8338). Chacun devient une fonctionnalité en lecture seule, nommée et typée comme BSB-LAN la décrit ; jamais écrit. Chaque paramètre allonge chaque lecture du bus."
+      },
+      "placeholder": {
+        "en": "8326, 8338",
+        "fr": "8326, 8338"
+      },
+      "required": false,
+      "default": ""
     },
     {
       "key": "language",

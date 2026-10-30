@@ -269,3 +269,37 @@ export function fakeBsbLan({
   };
   return fake;
 }
+
+/** A controller with heating circuit 2, flow temperatures, the boiler and its last fault. */
+export function fullParams() {
+  return {
+    ...bsbParams(),
+    8744: temp('Flow temperature setpoint H1', '45.0'),
+    8743: temp('Flow temp actual value heat circuit 1', '43.2'),
+    1000: choice('Operating mode HC2', '1', 'Automatic'),
+    1010: temp('Comfort setpoint HC2', '21.0'),
+    1012: temp('Reduced setpoint HC2', '18.0'),
+    1014: temp('Frost protection setpoint HC2', '8.0'),
+    1016: temp('Comfort setpoint max HC2', '26.0'),
+    8001: choice('Status heating circuit 2', '116', 'Heating mode reduced'),
+    8774: temp('Flow temperature setpoint H2', '35.0'),
+    8773: temp('Flow temp actual value heat circuit 2', '34.1'),
+    8003: choice('Status DHW', '92', 'Charging'),
+    8005: choice('Status boiler', '25', 'In operation'),
+    8310: temp('Boiler temp actual value', '58.4'),
+    7881: choice('1st burner stage E1', '255', '230 V'),
+    7870: choice('Burner fault S3', '0', '0 V'),
+    6800: {
+      name: 'History 1 date/time',
+      dataType_name: 'DTTM',
+      dataType_family: 'DTTM',
+      error: 0,
+      value: '09.01.2026 12:42:02',
+      desc: '',
+      dataType: 5,
+      readwrite: 1,
+      unit: '',
+    },
+    6801: choice('History 1 error code', '133', 'No flame established'),
+  };
+}

@@ -1,8 +1,13 @@
 // -----------------------------------------------------------------------------
 // The BSB-LAN parameters this integration reads and writes, and their
 // decoding (pure). Numbers and names from python-bsblan 6.1.10
-// (`constants.py`, `models.py`): heating circuit 1, hot water, outside
-// temperature, energy brought in, and the PPS room-unit parameters (15000+).
+// (`constants.py`, `models.py`): heating circuits 1 and 2, hot water, outside
+// temperature, energy brought in, and the PPS room-unit parameters (15000+);
+// the flow, status and boiler numbers from the BSB-LAN parameter names
+// (localization/LANG_EN.h, LANG_DE_LEGACY.h: 8001, 8003, 8005, 8310, 8743,
+// 8744, 8773, 8774, 7870, 7881, 6800, 6801). Their type is not fixed by
+// BSB-LAN (the parameter tables are made per controller): each value is
+// checked as it comes.
 //
 // Every value BSB-LAN sends is a text in an object
 // `{ name, value, desc, unit, dataType, error, ... }`. A value is unknown when
@@ -23,6 +28,17 @@ export const P = {
   COMFORT_MAX: '716',
   STATUS: '8000',
   ROOM: '8740',
+  FLOW_SETPOINT: '8744',
+  FLOW: '8743',
+  // Heating circuit 2 (BSB/LPB).
+  MODE2: '1000',
+  COMFORT2: '1010',
+  REDUCED2: '1012',
+  PROTECTIVE2: '1014',
+  COMFORT_MAX2: '1016',
+  STATUS2: '8001',
+  FLOW_SETPOINT2: '8774',
+  FLOW2: '8773',
   // Sensors.
   OUTDOOR: '8700',
   ENERGY: '3113',
@@ -33,6 +49,14 @@ export const P = {
   DHW_NOMINAL_MAX: '1614',
   DHW_TEMP: '8830',
   DHW_PUMP: '8820',
+  DHW_STATUS: '8003',
+  // The boiler.
+  BOILER_STATUS: '8005',
+  BOILER_TEMP: '8310',
+  BURNER_STAGE_1: '7881',
+  BURNER_FAULT: '7870',
+  FAULT_DATE: '6800',
+  FAULT_CODE: '6801',
   // The controller.
   IDENTIFICATION: '6224',
   // PPS bus (one room-unit circuit).
@@ -44,7 +68,11 @@ export const P = {
   PPS_OUTDOOR: '15030',
 };
 
-/** What one poll reads, by bus. */
+/**
+ * What one poll reads, by bus. On BSB/LPB, the rest of heating circuit 2
+ * (`HC2_REST`) only while its mode (1000) is not known to be missing: a
+ * controller without circuit 2 costs one parameter per poll.
+ */
 export const POLL = {
   bsb: [
     P.MODE,
@@ -62,9 +90,29 @@ export const POLL = {
     P.DHW_TEMP,
     P.DHW_PUMP,
     P.ENERGY,
+    P.FLOW_SETPOINT,
+    P.FLOW,
+    P.DHW_STATUS,
+    P.BOILER_STATUS,
+    P.BOILER_TEMP,
+    P.BURNER_STAGE_1,
+    P.BURNER_FAULT,
+    P.FAULT_DATE,
+    P.FAULT_CODE,
+    P.MODE2,
   ],
   pps: [P.PPS_MODE, P.PPS_SETPOINT, P.PPS_MIN, P.PPS_MAX, P.PPS_ROOM, P.PPS_OUTDOOR],
 };
+
+export const HC2_REST = [
+  P.COMFORT2,
+  P.REDUCED2,
+  P.PROTECTIVE2,
+  P.COMFORT_MAX2,
+  P.STATUS2,
+  P.FLOW_SETPOINT2,
+  P.FLOW2,
+];
 
 /**
  * Heating circuit 1 operating mode (700), python-bsblan `Validation.HVAC_MODES`
@@ -80,6 +128,10 @@ export const PPS_MODES = { 0: 'automatic', 1: 'manual', 2: 'off' };
 
 /** Hot water operating mode (1600): off, on, eco. */
 export const DHW_MODES = { 0: 'off', 1: 'on', 2: 'eco' };
+export const DHW_SELECTABLE = ['on', 'eco', 'off'];
+export const DHW_MODE_CODES = Object.fromEntries(
+  Object.entries(DHW_MODES).map(([k, v]) => [v, Number(k)]),
+);
 
 const INACTIVE = new Set(['---', '', 'None']);
 const NUMBER = /^-?\d{1,6}(\.\d{1,4})?$/;
@@ -192,9 +244,56 @@ export function energy(entry) {
   return value >= 0 && value <= 100_000_000 ? value : undefined;
 }
 
-/** The decoded values of one poll (`answer`: the /JQ answers merged). */
-export function decode(bus, answer) {
-  const values = { fahrenheit: false, access: {} };
+/**
+ * A read-only parameter typed in the configuration, as BSB-LAN describes it
+ * in the answer (`dataType`, `unit`, `name`): a temperature (°C), another
+ * plain number (its unit in the name), or a text (an enumeration's
+ * description, a date, a string). Undefined when inactive, in error, in °F,
+ * or out of bounds.
+ * @returns {{ kind: 'temperature' | 'number' | 'text', value?: number,
+ *   text?: string, name?: string, unit: string } | undefined}
+ */
+export function extraOf(entry) {
+  const text = rawOf(entry);
+  if (text === undefined) {
+    return undefined;
+  }
+  const unit = cleanText(String(field(entry, 'unit') ?? ''))?.slice(0, 12) ?? '';
+  const name = cleanText(String(field(entry, 'name') ?? ''))?.slice(0, 60);
+  const dataType = field(entry, 'dataType');
+  const family = field(entry, 'dataType_family');
+  const numeric = (dataType === 0 || family === 'VALS') && NUMBER.test(text);
+  if (numeric) {
+    if (FAHRENHEIT.has(unit)) {
+      return undefined;
+    }
+    const value = Number(text);
+    if (CELSIUS.has(unit) && unit !== '') {
+      return value >= -60 && value <= 250
+        ? { kind: 'temperature', value, name, unit: '°C' }
+        : undefined;
+    }
+    return Math.abs(value) <= LIMITS.extraNumber
+      ? { kind: 'number', value, name, unit }
+      : undefined;
+  }
+  const desc = cleanText(field(entry, 'desc'));
+  const shown = cleanText(desc && INTEGER.test(text) ? `${desc} (${text})` : (desc ?? text));
+  return shown === undefined ? undefined : { kind: 'text', text: shown, name, unit };
+}
+
+/**
+ * The decoded values of one poll (`answer`: the /JQ answers merged;
+ * `extras`: the read-only parameters typed in the configuration).
+ */
+export function decode(bus, answer, extras = []) {
+  const values = { fahrenheit: false, access: {}, extra: {} };
+  for (const id of extras) {
+    const read = extraOf(entryOf(answer, id));
+    if (read) {
+      values.extra[id] = read;
+    }
+  }
   if (isObject(answer)) {
     for (const id of Object.keys(answer)) {
       if (!/^\d{1,5}$/.test(id)) {
@@ -258,6 +357,53 @@ export function decode(bus, answer) {
   const pump = enumerated(entryOf(answer, P.DHW_PUMP));
   if (pump) {
     values.dhwPump = pump.code === 0 ? 0 : 1;
+  }
+  setTemperature('flowSetpoint', P.FLOW_SETPOINT, 0, 120);
+  setTemperature('flow', P.FLOW, -60, 120);
+  // Heating circuit 2: nothing of it without its mode (1000).
+  const mode2 = enumerated(entryOf(answer, P.MODE2));
+  if (mode2) {
+    values.mode2 = {
+      code: mode2.code,
+      key: Object.hasOwn(MODES, mode2.code) ? MODES[mode2.code] : undefined,
+    };
+    setTemperature('heating2Setpoint', P.COMFORT2, 0, 95);
+    setTemperature('heating2SetpointReduced', P.REDUCED2, 0, 95);
+    setTemperature('heating2Min', P.PROTECTIVE2, 0, 95);
+    setTemperature('heating2Max', P.COMFORT_MAX2, 0, 95);
+    setTemperature('flowSetpoint2', P.FLOW_SETPOINT2, 0, 120);
+    setTemperature('flow2', P.FLOW2, -60, 120);
+    const status2 = enumerated(entryOf(answer, P.STATUS2));
+    if (status2) {
+      values.status2 = status2;
+    }
+  }
+  const dhwStatus = enumerated(entryOf(answer, P.DHW_STATUS));
+  if (dhwStatus) {
+    values.dhwStatus = dhwStatus;
+  }
+  const boilerStatus = enumerated(entryOf(answer, P.BOILER_STATUS));
+  if (boilerStatus) {
+    values.boilerStatus = boilerStatus;
+  }
+  setTemperature('boiler', P.BOILER_TEMP, -60, 150);
+  for (const [key, id] of [
+    ['burnerStage1', P.BURNER_STAGE_1],
+    ['burnerFault', P.BURNER_FAULT],
+  ]) {
+    // An input of the controller (0 V / 230 V, off / on): 0 off, any other code on.
+    const input = enumerated(entryOf(answer, id));
+    if (input) {
+      values[key] = input.code === 0 ? 0 : 1;
+    }
+  }
+  const faultDate = rawOf(entryOf(answer, P.FAULT_DATE));
+  if (faultDate !== undefined && /^[\d.:/ -]{5,25}$/.test(faultDate)) {
+    values.lastFaultDate = faultDate;
+  }
+  const faultCode = enumerated(entryOf(answer, P.FAULT_CODE));
+  if (faultCode) {
+    values.lastFaultCode = faultCode;
   }
   const brought = energy(entryOf(answer, P.ENERGY));
   if (brought !== undefined) {

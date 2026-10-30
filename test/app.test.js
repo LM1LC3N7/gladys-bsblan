@@ -51,7 +51,12 @@ async function setup(
   };
   const connecting = gladys.connect();
   await settle();
-  await advance(SECOND, 100);
+  // The first read: as many latencies as requests (one per poll batch).
+  let up = false;
+  connecting.then(() => (up = true));
+  for (let i = 0; i < 100 && !up; i += 1) {
+    await advance(100);
+  }
   await connecting;
   t.after(() => app.stop());
   if (create) {
@@ -124,7 +129,13 @@ test('one poll: /JI, /JV, then the parameters four at a time, POST, one request 
       '/JQ:700,710,712,714',
       '/JQ:716,8000,8740,8700',
       '/JQ:1600,1610,1612,1614',
-      '/JQ:8830,8820,3113,6224',
+      '/JQ:8830,8820,3113,8744',
+      '/JQ:8743,8003,8005,8310',
+      '/JQ:7881,7870,6800,6801',
+      // Circuit 2 not known missing yet: read whole once.
+      '/JQ:1000,1010,1012,1014',
+      '/JQ:1016,8001,8774,8773',
+      '/JQ:6224',
     ],
   );
   assert.ok(bsb.requests.every((r) => r.options.method === 'POST' && r.options.port === 80));
@@ -175,12 +186,13 @@ test('one device keyed by the MAC: the features its parameters gave, no switch, 
     'operating-mode',
     'heating-status',
     'heating-setpoint',
-    'heating-setpoint-reduced',
+    'heating-reduced-target',
     'temperature-room',
     'temperature-outdoor',
+    'dhw-mode-select',
     'dhw-mode',
     'dhw-setpoint',
-    'dhw-setpoint-reduced',
+    'dhw-reduced-target',
     'temperature-dhw',
     'dhw-pump',
     'energy-total',
@@ -239,7 +251,9 @@ test('the values of the created device, badge local', async (t) => {
   assert.equal(last(gladys, 'operating-mode'), 'Confort');
   assert.equal(last(gladys, 'heating-status'), 'Heating mode comfort');
   assert.equal(last(gladys, 'heating-setpoint'), 20);
-  assert.equal(last(gladys, 'heating-setpoint-reduced'), 17);
+  assert.equal(last(gladys, 'heating-reduced-target'), 17);
+  assert.equal(last(gladys, 'dhw-mode-select'), 'on');
+  assert.equal(last(gladys, 'dhw-reduced-target'), 40);
   assert.equal(last(gladys, 'temperature-room'), 19.3);
   assert.equal(last(gladys, 'temperature-outdoor'), 7.6);
   assert.equal(last(gladys, 'dhw-mode'), 'Marche');
@@ -259,7 +273,9 @@ test('read every 30 s, the identification only once', async (t) => {
   assert.equal(bsb.requests.length, count);
   await advance(3 * SECOND);
   const round = bsb.requests.slice(count).map((r) => r.endpoint);
-  assert.deepEqual(round, ['/JI', '/JQ', '/JQ', '/JQ', '/JQ']);
+  // No circuit 2 on this controller: its mode (1000) only, in 7 batches.
+  assert.deepEqual(round, ['/JI', ...Array(7).fill('/JQ')]);
+  assert.ok(!bsb.requests.slice(count).some((r) => r.ids.includes('1010')));
   assert.ok(!bsb.requests.slice(count).some((r) => r.ids.includes('6224')));
 });
 
@@ -541,7 +557,7 @@ test('credentials refused: a stop persisted, next tries 15 min then 1 h, never i
   assert.match(message(gladys).en, /refused the user name or the password/);
   // The right password, saved: tried at once, the stop lifted.
   const saved = gladys.fake.configUpdated({ ...config, password: 'right' });
-  await advance(SECOND);
+  await advance(3 * SECOND);
   await saved;
   assert.equal(gladys.fake.connectionStatus.connected, true);
   assert.equal(store.data.auth.failures, 0);
@@ -554,7 +570,7 @@ test('a stop persisted before a restart holds; the button tries now', async (t) 
   assert.equal(bsb.requests.length, 0);
   assert.match(message(gladys).en, /asks for a user name and a password/);
   const pending = gladys.fake.action(ACTIONS.TEST_CONNECTION);
-  await advance(SECOND);
+  await advance(3 * SECOND);
   const ack = await pending;
   assert.match(ack.data.message.en, /Connected/);
   assert.equal(store.data.auth.until, 0);
@@ -611,7 +627,7 @@ test('BSB-LAN unreachable: status, badge, mode text; retried after 30 s, 1, 2, 5
   const bsb = fakeBsbLan();
   const { gladys, advance, command, app } = await setup(t, { bsb, config: ALLOWED });
   bsb.down = true;
-  await advance(30 * SECOND);
+  await advance(32 * SECOND);
   assert.equal(gladys.fake.connectionStatus.connected, false);
   assert.match(message(gladys).fr, /Lecture de BSB-LAN 192\.168\.1\.50 impossible \(unreachable/);
   assert.equal(last(gladys, 'operating-mode'), 'BSB-LAN injoignable');
@@ -624,7 +640,7 @@ test('BSB-LAN unreachable: status, badge, mode text; retried after 30 s, 1, 2, 5
   assert.equal(bsb.requests.length, count + 1);
   assert.match((await command('mode', 'reduced')).error, /pas l'adaptateur lu actuellement/);
   bsb.down = false;
-  await advance(MINUTE + SECOND);
+  await advance(MINUTE + 3 * SECOND);
   assert.equal(gladys.fake.connectionStatus.connected, true);
   assert.equal(transportOf(gladys), DEVICE_TRANSPORTS.LOCAL);
   assert.ok(app.live);

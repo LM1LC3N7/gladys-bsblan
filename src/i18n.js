@@ -48,6 +48,37 @@ export const FEATURE_NAMES = {
   [FEATURES.TEMP_DHW]: both('Hot water temperature', "Température de l'eau chaude"),
   [FEATURES.DHW_PUMP]: both('Hot water pump running', "Pompe d'eau chaude en marche"),
   [FEATURES.ENERGY_TOTAL]: both('Energy brought in (kWh)', 'Énergie apportée (kWh)'),
+  [FEATURES.HEATING_REDUCED_TARGET]: both('Reduced setpoint', 'Consigne réduite'),
+  [FEATURES.FLOW_SETPOINT]: both('Flow setpoint', 'Consigne de départ'),
+  [FEATURES.TEMP_FLOW]: both('Flow temperature', 'Température de départ'),
+  [FEATURES.HC2_MODE]: both('Heating mode (circuit 2)', 'Mode de chauffage (circuit 2)'),
+  [FEATURES.HC2_MODE_STATE]: both(
+    'Heating mode, read (circuit 2)',
+    'Mode de chauffage, lu (circuit 2)',
+  ),
+  [FEATURES.HC2_STATUS]: both('Heating circuit 2 status', 'État du circuit de chauffage 2'),
+  [FEATURES.HC2_SETPOINT]: both('Comfort setpoint (circuit 2)', 'Consigne confort (circuit 2)'),
+  [FEATURES.HC2_REDUCED_TARGET]: both(
+    'Reduced setpoint (circuit 2)',
+    'Consigne réduite (circuit 2)',
+  ),
+  [FEATURES.HC2_FLOW_SETPOINT]: both('Flow setpoint (circuit 2)', 'Consigne de départ (circuit 2)'),
+  [FEATURES.HC2_TEMP_FLOW]: both(
+    'Flow temperature (circuit 2)',
+    'Température de départ (circuit 2)',
+  ),
+  [FEATURES.DHW_MODE_SELECT]: both('Hot water mode (command)', "Mode de l'eau chaude (commande)"),
+  [FEATURES.DHW_STATUS]: both('Hot water status', "État de l'eau chaude"),
+  [FEATURES.DHW_REDUCED_TARGET]: both(
+    'Hot water reduced setpoint',
+    "Consigne réduite de l'eau chaude",
+  ),
+  [FEATURES.BOILER_STATUS]: both('Boiler status', 'État de la chaudière'),
+  [FEATURES.TEMP_BOILER]: both('Boiler temperature', 'Température de la chaudière'),
+  [FEATURES.BURNER_STAGE_1]: both('Burner stage 1 signal', 'Signal 1re allure du brûleur'),
+  [FEATURES.BURNER_FAULT]: both('Burner fault input S3', 'Entrée défaut brûleur S3'),
+  [FEATURES.LAST_FAULT_DATE]: both('Last fault: date', 'Dernier défaut : date'),
+  [FEATURES.LAST_FAULT_CODE]: both('Last fault: code', 'Dernier défaut : code'),
 };
 
 /** The heating modes (src/params.js MODES and PPS_MODES). */
@@ -190,6 +221,11 @@ export const T = {
       'BSB-LAN did not name its bus (BSB or LPB): commands are refused.',
       "BSB-LAN n'a pas nommé son bus (BSB ou LPB) : les commandes sont refusées.",
     ),
+    extraIgnored: (list) =>
+      both(
+        `Extra parameters ignored (not a number, already read, repeated or over 10): ${list.join(', ')}.`,
+        `Paramètres supplémentaires ignorés (pas un numéro, déjà lus, en double ou au-delà de 10) : ${list.join(', ')}.`,
+      ),
     otherAdapter: both(
       'The created device belongs to another adapter (another MAC address): add the new device from the Discovery tab.',
       "L'appareil créé appartient à un autre adaptateur (autre adresse MAC) : ajoutez le nouvel appareil depuis l'onglet Découverte.",
@@ -207,7 +243,15 @@ export const ERRORS = {
     'Commands are disabled: turn on "Allow the commands" in the configuration of the integration.',
     "Les commandes sont désactivées : activez « Autoriser les commandes » dans la configuration de l'intégration.",
   ),
-  badMode: both('Unknown heating mode: not sent.', 'Mode de chauffage inconnu : non envoyé.'),
+  badMode: both('Unknown mode: not sent.', 'Mode inconnu : non envoyé.'),
+  noAdapter: both(
+    'No BSB-LAN adapter configured: not sent.',
+    'Aucun adaptateur BSB-LAN configuré : non envoyée.',
+  ),
+  overtaken: both(
+    'A protective command (Protection or hot water Off) came after this one: not sent.',
+    "Une commande de protection (Protection ou eau chaude à l'arrêt) est arrivée après : non envoyée.",
+  ),
   badNumber: both(
     'The setpoint must be a number: not sent.',
     'La consigne doit être un nombre : non envoyée.',
@@ -294,6 +338,14 @@ export const ERRORS = {
     ),
   refused: (reason) =>
     both(`BSB-LAN refused the command (${reason}).`, `BSB-LAN a refusé la commande (${reason}).`),
+  protectiveQueued: both(
+    'BSB-LAN is busy with another request: the command is queued first and leaves as soon as it is free (within 30 s). Check the value in a minute.',
+    "BSB-LAN est occupé par une autre requête : la commande passe en tête et part dès qu'il est libre (sous 30 s). Vérifiez la valeur dans une minute.",
+  ),
+  notApplied: both(
+    'Command sent and accepted, but the value read again just after is still the previous one: check it in a few seconds.',
+    'Commande envoyée et acceptée, mais la valeur relue juste après est encore la précédente : vérifiez-la dans quelques secondes.',
+  ),
   sentUnconfirmed: (reason) =>
     both(
       `Command sent, without confirmation (${reason}): check the value in a few seconds.`,

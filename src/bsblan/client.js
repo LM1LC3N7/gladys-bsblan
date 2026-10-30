@@ -58,7 +58,10 @@ export function decodeBody(buffer) {
   return value;
 }
 
-/** One request at a time; `priority` entries pass before the others. */
+/**
+ * One request at a time; `priority` entries pass before the others, and
+ * `urgent` ones (protective commands) before every other.
+ */
 export class Gate {
   constructor({ now = Date.now, timers = globalThis } = {}) {
     this.now = now;
@@ -68,12 +71,19 @@ export class Gate {
     this.closed = false;
   }
 
-  run(task, { priority = false, startBy } = {}) {
+  run(task, { priority = false, urgent = false, startBy } = {}) {
     if (this.closed) {
       return Promise.reject(new BsbError(CODES.CLOSED));
     }
     return new Promise((resolve, reject) => {
-      const entry = { task, priority, resolve, reject, timer: undefined };
+      const entry = {
+        task,
+        priority: priority || urgent,
+        urgent,
+        resolve,
+        reject,
+        timer: undefined,
+      };
       if (startBy !== undefined) {
         entry.timer = this.timers.setTimeout(
           () => {
@@ -86,7 +96,10 @@ export class Gate {
           Math.max(0, startBy - this.now()),
         );
       }
-      if (priority) {
+      if (urgent) {
+        const at = this.queue.findIndex((e) => !e.urgent);
+        this.queue.splice(at === -1 ? this.queue.length : at, 0, entry);
+      } else if (priority) {
         const at = this.queue.findIndex((e) => !e.priority);
         this.queue.splice(at === -1 ? this.queue.length : at, 0, entry);
       } else {
@@ -248,9 +261,12 @@ export class BsbClient {
     return this.gate.run(() => this.exchange('/JQ', { query: queryOf(ids) }));
   }
 
-  /** A command: `fn(raw)` runs holding the Gate, before the queued poll requests. */
-  session(fn, { startBy } = {}) {
-    return this.gate.run(() => fn(this.raw), { priority: true, startBy });
+  /**
+   * A command: `fn(raw)` runs holding the Gate, before the queued poll
+   * requests (`urgent`: before the queued commands too).
+   */
+  session(fn, { startBy, urgent = false } = {}) {
+    return this.gate.run(() => fn(this.raw), { priority: true, urgent, startBy });
   }
 }
 

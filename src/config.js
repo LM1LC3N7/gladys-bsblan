@@ -5,7 +5,8 @@
 // status or an error.
 // -----------------------------------------------------------------------------
 
-import { DEFAULT_PORT, DHW_CAP, POLL_INTERVAL } from './constants.js';
+import { DEFAULT_PORT, DHW_CAP, EXTRA_LIMIT, POLL_INTERVAL } from './constants.js';
+import { HC2_REST, POLL } from './params.js';
 
 /** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
 export const DEFAULT_CONFIG = {
@@ -13,8 +14,39 @@ export const DEFAULT_CONFIG = {
   allow_commands: false,
   dhw_max_temperature: DHW_CAP.default,
   poll_interval: POLL_INTERVAL.default,
+  extra_parameters: '',
   language: 'fr',
 };
+
+/** The parameters the integration reads anyway: never a second feature. */
+const BUILT_IN = new Set([...POLL.bsb, ...HC2_REST, ...POLL.pps, '6224']);
+
+/**
+ * The read-only parameters typed in the configuration: numbers of 1 to 5
+ * digits, separated by commas, semicolons or spaces, at most EXTRA_LIMIT,
+ * without duplicates nor those the integration reads anyway. Anything else
+ * is ignored and listed (bounded, for the status). Never written.
+ * @returns {{ ids: string[], ignored: string[] }}
+ */
+export function extraParamsOf(raw) {
+  const ids = [];
+  const ignored = [];
+  const text = typeof raw === 'string' ? raw.slice(0, 400) : '';
+  for (const token of text.split(/[\s,;]+/)) {
+    if (token === '') {
+      continue;
+    }
+    const id = /^\d{1,5}$/.test(token) ? String(Number(token)) : undefined;
+    if (id === undefined || BUILT_IN.has(id) || ids.includes(id) || ids.length >= EXTRA_LIMIT) {
+      if (ignored.length < 5) {
+        ignored.push(token.slice(0, 12));
+      }
+      continue;
+    }
+    ids.push(id);
+  }
+  return { ids, ignored };
+}
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const IPV4 = /^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
@@ -159,6 +191,7 @@ export function normalizeConfig(raw = {}) {
     problem = 'credentialsInvalid';
   }
   const interval = numberOf(c.poll_interval);
+  const extras = extraParamsOf(c.extra_parameters);
   return {
     address: problem ? undefined : address,
     /** Why the configuration cannot be used (shown in the status), else undefined. */
@@ -175,6 +208,9 @@ export function normalizeConfig(raw = {}) {
         ? POLL_INTERVAL.default
         : Math.min(POLL_INTERVAL.max, Math.max(POLL_INTERVAL.min, Math.round(interval))),
     language: c.language === 'en' ? 'en' : 'fr',
+    /** Read-only parameters typed by the user (src/params.js extraOf). */
+    extraParams: extras.ids,
+    extraIgnored: extras.ignored,
   };
 }
 
