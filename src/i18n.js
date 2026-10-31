@@ -221,6 +221,16 @@ export const T = {
       'BSB-LAN did not name its bus (BSB or LPB): commands are refused.',
       "BSB-LAN n'a pas nommé son bus (BSB ou LPB) : les commandes sont refusées.",
     ),
+    stopWaiting: (n) =>
+      both(
+        `${n} protective command(s) (Protection or hot water Off) not sent yet: tried again every 10 s, never given up.`,
+        `${n} commande(s) de protection (Protection ou eau chaude à l'arrêt) pas encore partie(s) : nouvel essai toutes les 10 s, jamais abandonnée(s).`,
+      ),
+    stopUnconfirmed: (n) =>
+      both(
+        `${n} protective command(s) sent, not yet seen applied: written again when a read still shows the previous mode (3 times at most).`,
+        `${n} commande(s) de protection envoyée(s), pas encore vue(s) appliquée(s) : renvoyée(s) si une lecture montre encore l'ancien mode (3 fois au plus).`,
+      ),
     extraIgnored: (list) =>
       both(
         `Extra parameters ignored (not a number, already read, repeated or over 10): ${list.join(', ')}.`,
@@ -338,6 +348,10 @@ export const ERRORS = {
     ),
   refused: (reason) =>
     both(`BSB-LAN refused the command (${reason}).`, `BSB-LAN a refusé la commande (${reason}).`),
+  stopLifted: both(
+    'The protective command was lifted meanwhile (applied, or overtaken by a newer setting): not written again.',
+    'La commande de protection a été levée entre-temps (appliquée, ou remplacée par un réglage plus récent) : pas renvoyée.',
+  ),
   protectiveQueued: both(
     'BSB-LAN is busy with another request: the command is queued first and leaves as soon as it is free (within 30 s). Check the value in a minute.',
     "BSB-LAN est occupé par une autre requête : la commande passe en tête et part dès qu'il est libre (sous 30 s). Vérifiez la valeur dans une minute.",

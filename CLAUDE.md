@@ -47,7 +47,7 @@ src/bsblan/http.js           node:http transport: deadline, size cap, `sent`
 src/bsblan/errors.js         BsbError codes, auth/busy helpers
 src/params.js                parameter map, decoding, modes (python-bsblan)
 src/devices.js               -> the Gladys device and its states (pure), kept features
-src/store.js                 /data/bsblan-state.json: pause and stop, bounded, no secret
+src/store.js                 /data/bsblan-state.json: pause, stop, kept stops, bounded, no secret
 src/publisher.js             states within 300/min
 src/config.js                config_schema normalized (address, passkey, username,
                              password, allow_commands, dhw_max_temperature,
@@ -97,7 +97,10 @@ scripts/cover.mjs            cover.png generator
   behind the option, a pause, a stop, another command, a fresh read or the
   range; `urgent` in the Gate; bumps `stopEpoch` (a command that arrived
   before is refused in `checkBeforeSend`); written again by a later read
-  showing the start value (3 times at most), never against another value.
+  showing the start value (3 times at most); kept in `/data` (`stops`) until
+  read applied, never lifted by time (only a newer command of the role that
+  left, or another mode read twice); sent first after a restart; /data never
+  awaited on that path, an unreadable /data never overwritten.
 - **Write access**: the `readwrite` of the parameter in the fresh read
   first, else `buswritable` of /JI, never believed before firmware 5.1.19.
 - **Extra parameters**: read only, forever; never a command role.

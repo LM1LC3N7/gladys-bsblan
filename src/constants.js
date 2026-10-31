@@ -156,4 +156,8 @@ export const TIMINGS = {
   protectiveResends: 3,
   /** A protective command waits for a busy adapter this long at most (the ack goes at 3.5 s). */
   protectiveWait: 30 * SECOND,
+  /** A kept stop not sent yet is tried again this often (never given up). */
+  stopRetry: 10 * SECOND,
+  /** /data is never waited for longer than this (a frozen disk holds nothing). */
+  dataWait: 2 * SECOND,
 };

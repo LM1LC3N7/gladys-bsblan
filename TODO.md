@@ -32,8 +32,7 @@ up to date at the end of every milestone.
       only after a read back. Not reviewed yet (heating: `xhigh`).
 - [ ] **Milestone 3 — more**: cooling (901/902), PPS commands (python-bsblan
       `PPS_HVAC_MODE_TO_BSBLAN`), the hvac action category of 8000
-      (`HeatingCircuitStatus`), time programs read only, a pending
-      protective kept in `/data` across a restart, and an opt-in energy
+      (`HeatingCircuitStatus`), time programs read only, and an opt-in energy
       index once 3113 is proven cumulative (with the approved guard of
       gladys-p1-monitor: hold, bounded acceptance button, never 0).
 
@@ -235,7 +234,19 @@ up to date at the end of every milestone.
     MAC was read); waits for the request BSB-LAN serves (cutting ours would
     not free the single-client adapter); queued past 3.5 s, sent within
     30 s; resent from later reads (never its own read back) while the read
-    shows the start value, 3 times; not kept in `/data` (open point).
+    shows the start value, 3 times.
+  - Kept stops (coordinator, 2026-10-31; lot 18 lessons ecoNET300, WARP
+    r4): `memory.stops` `{ mac, role, from, sent, diff }` in /data. Only a
+    write that left counts as a try (unsent: retried every 10 s, never given
+    up, held only by refused credentials until new ones or the button);
+    never lifted by time; lifted by a newer command of the role that left
+    and was not refused (status 2 or 4xx keep it), by another mode read
+    twice after it left, or done when read applied; checked again in
+    `beforeSend` (lifted while queued: not written). After a restart, kept
+    stops leave first (urgent, before /JI). /data never awaited on the stop
+    path (next check armed before each save, every wait bounded at 2 s); an
+    unreadable /data (≠ missing) is never overwritten, read again at each
+    save and poll, its stops merged. Mutants S1–S12 killed.
   - Success after a read back of the written parameter (rule of Louis);
     equal to the start value: "not applied yet".
   - Extra parameters: up to 10, digits only, never one the integration

@@ -159,14 +159,25 @@ command came after this one"). BSB-LAN serves one request at a time: they
 wait for the end of the one it serves. Still busy after 3.5 s, Gladys
 answers "the command is queued first and leaves as soon as it is free" and
 sends it as soon as possible (within 30 s). If a later read still shows the
-previous mode, they are written again (3 times at most); if it shows
-another mode (changed on the boiler), they are not.
+previous mode, they are written again (3 times at most).
+
+Each one is **kept** (in `/data` too) until a read shows it applied. It is
+never dropped with time: one that never left (BSB-LAN unreachable, too
+slow) is tried again every 10 seconds for as long as needed; after a
+restart, a kept one leaves first, before any read. Only two things lift it:
+a newer setting of the same mode sent by Gladys and accepted, or another
+mode (neither Protection/Off nor the one before) read twice in a row, which
+means someone changed it on the boiler. While credentials are refused, a
+kept one waits for new credentials or the "Test the connection" button.
+`/data` is never waited for on this path: a slow or stuck disk holds
+nothing, and a `/data` that cannot be read is never overwritten (it is read
+again later). The status of the integration says how many are waiting or
+not yet seen applied.
 
 They are refused only when they cannot leave: no adapter configured, a PPS
 bus, another adapter read at the address (another MAC address), BSB-LAN
-unreachable, or BSB-LAN refusing the write (read-only parameter: status 2).
-They are not kept in `/data`: a restart of the integration between two
-writes forgets them.
+unreachable (then kept and tried again, see above), or BSB-LAN refusing the
+write (read-only parameter: status 2).
 
 BSB-LAN must also allow writing to the bus, and name its bus BSB or LPB:
 otherwise the configuration screen says so and the commands are refused.
@@ -257,8 +268,8 @@ between two writes (otherwise "still running").
 - **One adapter** per integration, **heating circuits 1 and 2**.
 - Not yet: cooling, time programs, commands on a PPS bus, circuit 3.
 - The logs never hold the passkey, the user name, the password nor the
-  answers of BSB-LAN; `/data` keeps only the pause and the stop, never a
-  secret.
+  answers of BSB-LAN; `/data` keeps only the pause, the stop on refused
+  credentials and the kept protective commands, never a secret.
 
 ## Credits
 

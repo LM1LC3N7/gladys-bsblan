@@ -20,7 +20,7 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
                                   ├─ src/bsblan/http.js    node:http, deadline, 64 KB cap
                                   ├─ src/params.js         parameter map and decoding (python-bsblan)
                                   ├─ src/devices.js        the device and its states (pure)
-                                  ├─ src/store.js          /data: pause and stop (no secret)
+                                  ├─ src/store.js          /data: pause, stop, kept stops (no secret)
                                   └─ src/publisher.js      states within 300/min
 ```
 

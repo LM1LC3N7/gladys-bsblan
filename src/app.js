@@ -54,7 +54,7 @@ import {
   parseFeatureId,
   reportedRoles,
 } from './devices.js';
-import { ERRORS, STATE_TEXTS, T, age, word } from './i18n.js';
+import { ERRORS, STATE_TEXTS, T, age, join, word } from './i18n.js';
 import {
   DHW_MODES,
   DHW_MODE_CODES,
@@ -261,6 +261,11 @@ export class BsbLanApp {
     this.freshReads = new Map();
     /** Increases at every protective command: a command that arrived before never leaves after. */
     this.stopEpoch = 0;
+    /** `${mac}:${role}` of the kept stops being written now (never two at once). */
+    this.stopFlight = new Set();
+    this.stopTimer = undefined;
+    /** /data there but not readable: never overwritten, read again later. */
+    this.memoryUnreadable = false;
     /** mac -> { id: { kind, name, unit } }: the read-only parameters of the configuration, as first seen. */
     this.extraSeen = new Map();
   }
@@ -301,22 +306,74 @@ export class BsbLanApp {
     };
   }
 
+  /** A promise of /data, never awaited longer than TIMINGS.dataWait ('late' then). */
+  bounded(promise) {
+    let handle;
+    const late = new Promise((resolve) => {
+      handle = this.timers.setTimeout(() => resolve('late'), TIMINGS.dataWait);
+    });
+    return Promise.race([promise, late]).finally(() => this.timers.clearTimeout(handle));
+  }
+
   async loadMemory() {
     if (this.memoryLoaded) {
       return;
     }
     this.memoryLoaded = true;
-    const raw = await this.store.load().catch(() => null);
-    this.memory = normalizeMemory(raw, this.now());
+    await this.reloadMemory();
   }
 
+  /**
+   * Reads /data (bounded). Missing: empty. Unreadable or too slow: NOT empty;
+   * `memoryUnreadable` keeps every save off (never overwritten) and the read
+   * is tried again later. What it holds is merged with what this run keeps.
+   * Returns true when read.
+   */
+  async reloadMemory() {
+    let raw;
+    try {
+      raw = await this.bounded(this.store.load());
+    } catch {
+      raw = 'late';
+    }
+    if (raw === 'late') {
+      if (!this.memoryUnreadable) {
+        this.logger.warn('The state in /data could not be read: kept as it is, read again later');
+      }
+      this.memoryUnreadable = true;
+      return false;
+    }
+    const read = normalizeMemory(raw, this.now());
+    const mine = this.memory;
+    this.memory = {
+      pausedUntil: Math.max(read.pausedUntil, mine.pausedUntil),
+      auth: read.auth.until >= mine.auth.until ? read.auth : mine.auth,
+      stops: [
+        ...mine.stops,
+        ...read.stops.filter((k) => !mine.stops.some((m) => m.mac === k.mac && m.role === k.role)),
+      ],
+    };
+    this.memoryUnreadable = false;
+    if (this.memory.stops.length > 0) {
+      this.armStopCheck(0);
+    }
+    return true;
+  }
+
+  /** Bounded: a slow or frozen /data never holds the caller (nor a stop). */
   saveMemory() {
-    return this.store.save(serializeMemory(this.memory)).catch((err) => {
+    const attempt = (async () => {
+      if (this.memoryUnreadable && !(await this.reloadMemory())) {
+        return;
+      }
+      await this.store.save(serializeMemory(this.memory));
+    })().catch((err) => {
       if (!this.saveWarned) {
         this.saveWarned = true;
         this.logger.warn(`The state could not be saved in /data: ${err?.code ?? 'error'}`);
       }
     });
+    return this.bounded(attempt);
   }
 
   async start(raw = {}) {
@@ -335,12 +392,19 @@ export class BsbLanApp {
       await this.publishAll();
       return;
     }
+    // The stops kept in /data leave first, before any read.
+    this.flushStops({ atStart: true });
     await this.setStatus(false, T.connecting);
     await this.tick();
   }
 
   stop() {
     this.generation += 1;
+    if (this.stopTimer !== undefined) {
+      this.timers.clearTimeout(this.stopTimer);
+      this.stopTimer = undefined;
+    }
+    this.stopFlight.clear();
     if (this.adapter) {
       this.clearTimer();
       for (const handle of this.adapter.followUps) {
@@ -480,6 +544,9 @@ export class BsbLanApp {
 
   async run(adapter, { force }) {
     const generation = this.generation;
+    if (this.memoryUnreadable) {
+      await this.reloadMemory();
+    }
     const now = this.now();
     if (this.memory.pausedUntil > now) {
       this.halted(adapter, 'busy', this.memory.pausedUntil - now);
@@ -863,7 +930,14 @@ export class BsbLanApp {
   /** The connection status of the configuration screen. */
   async updateStatus() {
     const [connected, message] = this.status();
-    await this.setStatus(connected, message);
+    // Where the kept stops stand, whatever the rest says.
+    const waiting = this.memory.stops.filter((k) => k.sent === 0).length;
+    const unconfirmed = this.memory.stops.length - waiting;
+    const notes = [
+      ...(waiting > 0 ? [T.notes.stopWaiting(waiting)] : []),
+      ...(unconfirmed > 0 ? [T.notes.stopUnconfirmed(unconfirmed)] : []),
+    ];
+    await this.setStatus(connected, notes.length > 0 ? join2(message, join(notes)) : message);
   }
 
   status() {
@@ -974,6 +1048,10 @@ export class BsbLanApp {
     });
     await Promise.race([this.tick({ force: true }), limit]);
     this.timers.clearTimeout(handle);
+    // The user asked: the kept stops go too, even after refused credentials.
+    if (this.live) {
+      this.flushStops({ force: true });
+    }
     return JSON.parse(this.lastStatus ?? '[false,null]')[1] ?? T.connecting;
   }
 
@@ -1259,6 +1337,9 @@ export class BsbLanApp {
     const spec = COMMANDS[role];
     const key = `${mac}:${role}`;
     const answerBy = received + TIMINGS.commandAnswerBy;
+    // The write reached the controller (maybe): a kept stop counts a try; a
+    // newer command of the same role lifts the stop it supersedes.
+    const left = () => (protective ? this.stopSent(mac, role) : this.liftStop(mac, role, 'newer'));
     this.logger.info(`BSB-LAN ${role}: ${wanted.value}`);
     let written;
     try {
@@ -1282,16 +1363,21 @@ export class BsbLanApp {
       // A silence, a dropped connection, a 5xx, an answer that is not JSON:
       // the write may have reached the controller.
       this.block(err);
-      this.guard(key, plan, protective);
+      this.guard(key, plan);
+      left();
       this.followUp();
       throw this.refusal(ERRORS.sentUnconfirmed(reason));
     }
     const outcome = writeOutcome(written, wanted.id);
     if (outcome === 'refused') {
+      if (protective) {
+        this.stopSent(mac, role);
+      }
       this.followUp();
       throw this.refusal(ERRORS.refused('BSB-LAN status 2'));
     }
-    this.guard(key, plan, protective);
+    this.guard(key, plan);
+    left();
     this.followUp();
     if (outcome !== 'ok') {
       throw this.refusal(ERRORS.sentUnconfirmed('no status 1'));
@@ -1314,7 +1400,7 @@ export class BsbLanApp {
             ? { code: spec.codes[seen], key: seen }
             : temperature(entry, 0, 95).value;
         // Its own read back never writes it again (only a later read does).
-        this.observe(mac, adapter.values, { resend: false });
+        this.observe(mac, adapter.values, { confirm: true });
         this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
       }
     } catch (err) {
@@ -1344,7 +1430,7 @@ export class BsbLanApp {
    * configured, a PPS bus, another adapter read at the address, or BSB-LAN
    * busy past the budget (then sent as soon as it is free, within 30 s).
    */
-  async protect(target, wanted, received, resend = 0) {
+  async protect(target, wanted, received, { kept = false } = {}) {
     const adapter = this.adapter;
     if (!adapter) {
       throw this.refusal(ERRORS.noAdapter);
@@ -1355,11 +1441,18 @@ export class BsbLanApp {
     if (adapter.mac && adapter.mac !== target.mac) {
       throw this.refusal(ERRORS.unknownDevice);
     }
-    this.stopEpoch += 1;
     const generation = this.generation;
     const { mac, role } = target;
-    // The value in memory only decides whether a contradicted write is sent again.
+    const key = `${mac}:${role}`;
+    // The value in memory only tells "not applied" from "changed since".
     const from = comparable(role, adapter.values);
+    if (!kept) {
+      // A click: cancels what arrived before it, and is kept (in /data,
+      // never awaited) until a read shows it applied.
+      this.stopEpoch += 1;
+      this.keepStop(mac, role, from === wanted.key ? undefined : from);
+    }
+    this.stopFlight.add(key);
     const queuedAt = this.now();
     const session = adapter.client.session(
       (raw) => {
@@ -1369,7 +1462,7 @@ export class BsbLanApp {
             ? this.now()
             : received;
         return this.writeAndConfirm(raw, target, wanted, {
-          plan: { from, expected: wanted.key, resend },
+          plan: { from, expected: wanted.key },
           received: base,
           sendBy: base + TIMINGS.commandSendBy,
           protective: true,
@@ -1380,10 +1473,19 @@ export class BsbLanApp {
             if (adapter.mac && adapter.mac !== mac) {
               throw this.refusal(ERRORS.unknownDevice);
             }
+            // A kept stop lifted while queued (a newer command left, another
+            // mode read twice, or seen applied) is not written again.
+            if (kept && !this.stopOf(mac, role)) {
+              throw this.refusal(ERRORS.stopLifted);
+            }
           },
         });
       },
       { urgent: true, startBy: queuedAt + TIMINGS.protectiveWait },
+    );
+    session.then(
+      () => this.stopFlight.delete(key),
+      () => this.stopFlight.delete(key),
     );
     const mapped = session.catch((err) => {
       if (err.code === CODES.LATE) {
@@ -1394,6 +1496,9 @@ export class BsbLanApp {
       }
       throw err;
     });
+    if (kept) {
+      return mapped;
+    }
     // The ack never waits past the budget: still queued then, it goes on.
     let handle;
     const late = new Promise((resolve) => {
@@ -1510,17 +1615,10 @@ export class BsbLanApp {
    * After a command, until a read shows it: a new command is always sent,
    * never answered "already so" on a value that may not show the previous
    * one yet. The start value is kept: a read equal to it lifts nothing
-   * until a move was seen. A protective one is written again by a read that
-   * still shows the start value (3 times at most); a read of another value
-   * (a change at the boiler, or by a later command) lifts it.
+   * until a move was seen.
    */
-  guard(key, plan, protective = false) {
-    this.guards.set(key, {
-      ...plan,
-      protective,
-      moved: false,
-      until: this.now() + TIMINGS.guard,
-    });
+  guard(key, plan) {
+    this.guards.set(key, { ...plan, moved: false, until: this.now() + TIMINGS.guard });
   }
 
   guardActive(key) {
@@ -1532,8 +1630,12 @@ export class BsbLanApp {
     return Boolean(guard);
   }
 
-  /** A read, through the guards of its adapter: never lifted on an unknown value. */
-  observe(mac, values, { resend = true } = {}) {
+  /**
+   * A read, through the guards and the kept stops of its adapter: never
+   * lifted on an unknown value. `confirm`: the read back of a write (it
+   * never writes a stop again nor counts as a second read).
+   */
+  observe(mac, values, { confirm = false } = {}) {
     for (const role of COMMAND_ROLES) {
       const key = `${mac}:${role}`;
       if (!this.guardActive(key)) {
@@ -1544,18 +1646,6 @@ export class BsbLanApp {
         continue;
       }
       const guard = this.guards.get(key);
-      if (guard.protective && value !== guard.expected) {
-        if (value !== guard.from || guard.from === undefined) {
-          // Not the start value: someone set it since (or no start known): never fought.
-          this.guards.delete(key);
-          continue;
-        }
-        if (resend && (guard.resend ?? 0) < TIMINGS.protectiveResends && !guard.resending) {
-          guard.resending = true;
-          this.resendProtective(mac, role, guard);
-        }
-        continue;
-      }
       if (value !== guard.from) {
         guard.moved = true;
       }
@@ -1563,24 +1653,149 @@ export class BsbLanApp {
         this.guards.delete(key);
       }
     }
+    this.observeStops(mac, values, confirm);
   }
 
-  /** A protective write a read shows not applied: written again (after the read, never inside it). */
-  resendProtective(mac, role, guard) {
-    const spec = COMMANDS[role];
+  // --- Kept stops (Protection, hot water Off) ------------------------------------
+
+  /**
+   * A protective command is kept in `memory.stops` (and /data) until a read
+   * shows it applied. Never lifted by time; lifted only by a newer command
+   * of the same role that left and was not refused, or by another mode
+   * (neither the stop nor the value before it) read twice in a row after
+   * it left. Never sent: retried every TIMINGS.stopRetry (through a pause;
+   * not while credentials are refused, until new ones or the test button).
+   * Sent but a later read shows the value before it: written again, 3 times
+   * at most. /data is never awaited on this path: the next check is armed
+   * before each save, and a save is never waited for.
+   */
+  keepStop(mac, role, from) {
+    const stops = this.memory.stops.filter((k) => !(k.mac === mac && k.role === role));
+    stops.push({ mac, role, from, sent: 0, diff: 0 });
+    this.memory.stops = stops;
+    this.armStopCheck();
+    void this.saveMemory();
+    this.showStops();
+  }
+
+  /** The status says where the kept stops stand (never awaited). */
+  showStops() {
+    this.updateStatus().catch(() => {});
+  }
+
+  stopOf(mac, role) {
+    return this.memory.stops.find((k) => k.mac === mac && k.role === role);
+  }
+
+  /** A write of the stop left (a status, or a silence after it left). */
+  stopSent(mac, role) {
+    const stop = this.stopOf(mac, role);
+    if (stop) {
+      stop.sent = Math.min(stop.sent + 1, 1000);
+      stop.diff = 0;
+      this.armStopCheck();
+      void this.saveMemory();
+      this.showStops();
+    }
+  }
+
+  liftStop(mac, role, why) {
+    const stop = this.stopOf(mac, role);
+    if (!stop) {
+      return;
+    }
+    this.memory.stops = this.memory.stops.filter((k) => k !== stop);
+    this.logger.info(`BSB-LAN ${role}: protective command ${why}`);
+    void this.saveMemory();
+    this.showStops();
+  }
+
+  observeStops(mac, values, confirm) {
+    for (const stop of [...this.memory.stops]) {
+      if (stop.mac !== mac) {
+        continue;
+      }
+      const spec = COMMANDS[stop.role];
+      const value = comparable(stop.role, values);
+      if (value === undefined) {
+        continue;
+      }
+      if (value === spec.protective) {
+        this.liftStop(mac, stop.role, 'applied');
+        continue;
+      }
+      if (confirm || stop.sent === 0) {
+        // Its own read back, or never sent yet (the retry sends it).
+        continue;
+      }
+      if (stop.from !== undefined && value === stop.from) {
+        stop.diff = 0;
+        if (stop.sent <= TIMINGS.protectiveResends) {
+          this.timers.setTimeout(() => this.sendStop(stop, 'written again'), 0);
+        }
+        continue;
+      }
+      stop.diff += 1;
+      if (stop.diff >= 2) {
+        this.liftStop(mac, stop.role, 'lifted: another mode read twice');
+      } else {
+        void this.saveMemory();
+      }
+    }
+  }
+
+  /** The next check of the stops not sent yet, armed before any save. */
+  armStopCheck(delay = TIMINGS.stopRetry) {
+    if (this.stopTimer !== undefined || !this.memory.stops.some((k) => k.sent === 0)) {
+      return;
+    }
+    const generation = this.generation;
+    this.stopTimer = this.timers.setTimeout(() => {
+      this.stopTimer = undefined;
+      if (generation === this.generation) {
+        this.flushStops();
+      }
+    }, delay);
+  }
+
+  /**
+   * Sends the kept stops: those never sent (at start: every one not past
+   * its resends). Refused credentials hold them until new ones are saved
+   * or the test button is pressed (`force`); a pause does not.
+   */
+  flushStops({ atStart = false, force = false } = {}) {
+    if (this.stopTimer !== undefined) {
+      this.timers.clearTimeout(this.stopTimer);
+      this.stopTimer = undefined;
+    }
+    const authHeld = this.memory.auth.until > this.now() && !force && !atStart;
+    for (const stop of [...this.memory.stops]) {
+      const due = atStart ? stop.sent <= TIMINGS.protectiveResends : stop.sent === 0;
+      if (due && !authHeld) {
+        this.sendStop(stop, atStart ? 'sent after a restart' : 'sent again (not sent before)');
+      }
+    }
+    // Re-armed for those still not sent.
+    this.armStopCheck();
+  }
+
+  sendStop(stop, why) {
+    const key = `${stop.mac}:${stop.role}`;
+    if (this.stopFlight.has(key) || !this.memory.stops.includes(stop) || !this.adapter) {
+      return;
+    }
+    const spec = COMMANDS[stop.role];
     const wanted = {
       id: spec.id,
-      text: String(spec.codes[guard.expected]),
-      value: guard.expected,
-      key: guard.expected,
+      text: String(spec.codes[spec.protective]),
+      value: spec.protective,
+      key: spec.protective,
       protective: true,
     };
-    this.timers.setTimeout(() => {
-      this.logger.warn(`BSB-LAN ${role}: ${guard.expected} not applied, written again`);
-      this.protect({ mac, role }, wanted, this.now(), (guard.resend ?? 0) + 1).catch((err) =>
-        this.logger.warn(`BSB-LAN ${role} written again: ${err.message}`),
-      );
-    }, 0);
+    this.logger.warn(`BSB-LAN ${stop.role}: ${spec.protective} ${why}`);
+    this.protect({ mac: stop.mac, role: stop.role }, wanted, this.now(), { kept: true })
+      .catch((err) => this.logger.warn(`BSB-LAN ${stop.role} kept stop: ${err.message}`))
+      .finally(() => this.armStopCheck());
   }
 }
 

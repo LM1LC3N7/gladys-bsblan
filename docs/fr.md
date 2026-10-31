@@ -168,14 +168,27 @@ ne sert qu'une requête à la fois : ils attendent la fin de celle qu'il
 traite. S'il est encore occupé au bout de 3,5 s, Gladys répond « la commande
 passe en tête et part dès qu'il est libre » et l'envoie dès que possible
 (sous 30 s). Si une lecture suivante montre encore l'ancien mode, ils sont
-renvoyés (3 fois au plus) ; si elle montre un autre mode (changé sur la
-chaudière), ils ne sont pas renvoyés.
+renvoyés (3 fois au plus).
+
+Chacun est **gardé** (aussi dans `/data`) jusqu'à ce qu'une lecture le
+montre appliqué. Il n'est jamais abandonné avec le temps : s'il n'est jamais
+parti (BSB-LAN injoignable, trop lent), il est réessayé toutes les 10
+secondes aussi longtemps qu'il le faut ; après un redémarrage, un arrêt
+gardé part en premier, avant toute lecture. Seules deux choses le lèvent :
+un réglage plus récent du même mode envoyé par Gladys et accepté, ou un
+autre mode (ni Protection/Arrêt ni celui d'avant) lu deux fois de suite,
+signe qu'on l'a changé sur la chaudière. Pendant un refus d'identifiants, il
+attend de nouveaux identifiants ou le bouton « Tester la connexion ».
+`/data` n'est jamais attendu sur ce chemin : un disque lent ou bloqué ne
+retient rien, et un `/data` illisible n'est jamais écrasé (il est relu plus
+tard). L'état de l'intégration dit combien attendent ou ne sont pas encore
+vus appliqués.
 
 Ils sont refusés seulement quand ils ne peuvent pas partir : aucun
 adaptateur configuré, bus PPS, autre adaptateur lu à l'adresse (autre
 adresse MAC), BSB-LAN injoignable, ou BSB-LAN qui refuse l'écriture
-(paramètre en lecture seule : statut 2). Ils ne sont pas gardés dans `/data`
-: un redémarrage de l'intégration entre deux renvois les oublie.
+(paramètre en lecture seule : statut 2). Injoignable : gardés et réessayés
+(voir plus haut).
 
 BSB-LAN doit aussi autoriser l'écriture sur le bus, et nommer son bus BSB
 ou LPB : sinon l'écran de configuration l'indique et les commandes sont
@@ -275,8 +288,9 @@ deux écritures (sinon « encore en cours »).
 - Pas encore : rafraîchissement, programmes horaires, commandes sur bus PPS,
   circuit 3.
 - Les journaux ne contiennent jamais la clé de passe, l'identifiant, le mot
-  de passe ni les réponses de BSB-LAN ; `/data` ne garde que la pause et
-  l'arrêt, jamais un secret.
+  de passe ni les réponses de BSB-LAN ; `/data` ne garde que la pause,
+  l'arrêt sur identifiants refusés et les commandes de protection gardées,
+  jamais un secret.
 
 ## Crédits
 

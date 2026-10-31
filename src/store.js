@@ -4,7 +4,12 @@
 // (0600):
 //   - `pausedUntil`: the end of a pause after an HTTP 429 or 5xx;
 //   - `auth`: `{ failures, until }` after credentials refused (401/403): no
-//     request before `until`, the next tries spaced (15 min, 1 h, 6 h, 24 h).
+//     request before `until`, the next tries spaced (15 min, 1 h, 6 h, 24 h);
+//   - `stops`: the protective commands kept until a read shows them applied
+//     (Protection on 700/1000, hot water Off on 1600): `{ mac, role, from,
+//     sent, diff }`, one per role and adapter. Never lifted by time.
+// A file that cannot be read (other than missing) is NOT empty: `load`
+// throws, and the app never overwrites it (src/app.js saveMemory).
 // Never a secret: no passkey, no user name, no password, not even a hash of
 // them. Read back bounded (a clock moved or a file edited by hand never
 // gives a pause longer than its maximum), only known keys of the expected
@@ -12,7 +17,13 @@
 // -----------------------------------------------------------------------------
 
 import { readFile, rename, writeFile } from 'node:fs/promises';
-import { TIMINGS } from './constants.js';
+import { FEATURES, TIMINGS } from './constants.js';
+import { DHW_MODES, MODES } from './params.js';
+
+/** The protective roles and the values a kept stop may name. */
+export const STOP_ROLES = [FEATURES.MODE, FEATURES.HC2_MODE, FEATURES.DHW_MODE_SELECT];
+const STOP_VALUES = new Set([...Object.values(MODES), ...Object.values(DHW_MODES)]);
+const STOP_MAX = 6;
 
 export const STATE_FILE = '/data/bsblan-state.json';
 
@@ -24,13 +35,21 @@ export function fileStore(path = STATE_FILE) {
   // One write at a time: two saves never share the temporary file.
   let chain = Promise.resolve();
   return {
+    /** null when the file is missing; throws when it exists but cannot be read. */
     async load() {
+      let text;
       try {
-        const text = await readFile(path, 'utf8');
-        return text.length > 4096 ? null : JSON.parse(text);
-      } catch {
-        return null;
+        text = await readFile(path, 'utf8');
+      } catch (err) {
+        if (err?.code === 'ENOENT') {
+          return null;
+        }
+        throw new Error('unreadable', { cause: err });
       }
+      if (text.length > 16384) {
+        throw new Error('unreadable');
+      }
+      return JSON.parse(text);
     },
     save(data) {
       const text = JSON.stringify(data);
@@ -45,16 +64,36 @@ export function fileStore(path = STATE_FILE) {
   };
 }
 
-/** For the tests: the same JSON round trip as the file; `failing` refuses every save. */
-export function memoryStore(initial = null, { failing = false } = {}) {
+/**
+ * For the tests: the same JSON round trip as the file; `failing` refuses
+ * every save, `frozen` never settles a save nor a load, `unreadable` makes
+ * `load` throw (a file there but not readable).
+ */
+export function memoryStore(
+  initial = null,
+  { failing = false, frozen = false, unreadable = false } = {},
+) {
   return {
     data: initial === null ? null : JSON.parse(JSON.stringify(initial)),
     saves: 0,
+    attempts: 0,
     failing,
-    async load() {
-      return this.data === null ? null : JSON.parse(JSON.stringify(this.data));
+    frozen,
+    unreadable,
+    load() {
+      if (this.frozen) {
+        return new Promise(() => {});
+      }
+      if (this.unreadable) {
+        return Promise.reject(new Error('unreadable'));
+      }
+      return Promise.resolve(this.data === null ? null : JSON.parse(JSON.stringify(this.data)));
     },
     async save(data) {
+      this.attempts += 1;
+      if (this.frozen) {
+        return new Promise(() => {});
+      }
       if (this.failing) {
         throw new Error('EROFS');
       }
@@ -78,10 +117,48 @@ export function normalizeMemory(raw, now) {
       failures: Number.isInteger(failures) && failures > 0 ? Math.min(failures, 1000) : 0,
       until: until(own(auth, 'until'), lastAuthRetry),
     },
+    stops: normalizeStops(own(raw, 'stops')),
   };
 }
 
-export const serializeMemory = ({ pausedUntil, auth }) => ({
+/**
+ * The kept stops, repaired: a known role and a MAC, one per role and MAC.
+ * An unreadable count is 0 (never sent); no age limit.
+ */
+export function normalizeStops(list) {
+  const count = (value, max) => (Number.isInteger(value) && value >= 0 ? Math.min(value, max) : 0);
+  const out = [];
+  for (const entry of Array.isArray(list) ? list.slice(0, 20) : []) {
+    const mac = own(entry, 'mac');
+    const role = own(entry, 'role');
+    const from = own(entry, 'from');
+    if (
+      typeof mac !== 'string' ||
+      !/^[0-9a-f]{12}$/.test(mac) ||
+      !STOP_ROLES.includes(role) ||
+      out.some((s) => s.mac === mac && s.role === role)
+    ) {
+      continue;
+    }
+    out.push({
+      mac,
+      role,
+      from: typeof from === 'string' && STOP_VALUES.has(from) ? from : undefined,
+      sent: count(own(entry, 'sent'), 1000),
+      diff: count(own(entry, 'diff'), 1),
+    });
+  }
+  return out.slice(0, STOP_MAX);
+}
+
+export const serializeMemory = ({ pausedUntil, auth, stops = [] }) => ({
   pausedUntil,
   auth: { failures: auth.failures, until: auth.until },
+  stops: stops.map(({ mac, role, from, sent, diff }) => ({
+    mac,
+    role,
+    ...(from === undefined ? {} : { from }),
+    sent,
+    diff,
+  })),
 });
