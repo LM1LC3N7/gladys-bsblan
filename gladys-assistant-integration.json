@@ -6,8 +6,8 @@
     "en": "Boilers and heat pumps through the local BSB-LAN adapter: temperatures, modes, optional commands.",
     "fr": "Chaudières et PAC par l'adaptateur local BSB-LAN : températures, modes, commandes en option."
   },
-  "version": "0.1.3",
-  "docker_image": "ghcr.io/lm1lc3n7/gladys-bsblan:0.1.3",
+  "version": "0.2.0",
+  "docker_image": "ghcr.io/lm1lc3n7/gladys-bsblan:0.2.0",
   "gladys_version": ">=5.1.0",
   "cover_image": "https://raw.githubusercontent.com/LM1LC3N7/gladys-bsblan/main/cover.png",
   "categories": ["climate"],
