@@ -297,3 +297,11 @@ up to date at the end of every milestone.
   No Docker on this PC: the image was not built locally. The store
   validator cannot be run by this agent: it runs at publication (main
   session, `validate.ps1`).
+
+## Next patch
+
+- r4 K8: no test pins `stopped` going back to false before the waits of `start()`. Protections are safe (the
+  send at the head of `start()` catches up), but a `getConfig()` retry or the test button during a restart would
+  be lost. Optional test.
+- r4 m2: a Protection clicked during a restart gets "not the adapter currently read … not sent" although the stop
+  is kept and leaves right after (a `CLOSED` client maps to `unknownDevice`). Use the `stopHeld` text instead.
