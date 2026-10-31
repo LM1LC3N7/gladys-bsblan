@@ -3,7 +3,9 @@
 // transport against a local server playing BSB-LAN 5.0.111 (the forum
 // report t/11458: `buswritable` meaningless, parameters read/write). The
 // time is sped up (`SPEED`) but it is the real clock: it moves between any
-// two reads of it. The app is always stopped in a `finally`.
+// two reads of it. The app is always stopped in a `finally`, and every wait
+// is bounded (`waitFor`, `within`): a regression fails the test, never
+// hangs the suite.
 // -----------------------------------------------------------------------------
 
 import { test } from 'node:test';
@@ -108,6 +110,55 @@ function scaled(speed) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** Waits until `ready()`, `ms` real ms at most: past it, fails (the finally then stops the app). */
+async function waitFor(ready, ms, what) {
+  const until = Date.now() + ms;
+  while (!ready()) {
+    if (Date.now() > until) {
+      throw new Error(`not seen within ${ms} ms: ${what}`);
+    }
+    await sleep(5);
+  }
+}
+
+/** A promise, `ms` real ms at most: past it, fails. */
+function within(promise, ms, what) {
+  let handle;
+  const late = new Promise((resolve, reject) => {
+    handle = setTimeout(() => reject(new Error(`not settled within ${ms} ms: ${what}`)), ms);
+  });
+  return Promise.race([promise, late]).finally(() => clearTimeout(handle));
+}
+
+/** The app's timers, counted: `live` holds those still armed (run or cleared: gone). */
+function counted(timers) {
+  const live = new Set();
+  return {
+    live,
+    setTimeout(fn, ms) {
+      const handle = timers.setTimeout(() => {
+        live.delete(handle);
+        fn();
+      }, ms);
+      live.add(handle);
+      return handle;
+    },
+    clearTimeout(handle) {
+      live.delete(handle);
+      timers.clearTimeout(handle);
+    },
+    setInterval(fn, ms) {
+      const handle = timers.setInterval(fn, ms);
+      live.add(handle);
+      return handle;
+    },
+    clearInterval(handle) {
+      live.delete(handle);
+      timers.clearInterval(handle);
+    },
+  };
+}
+
 test('real clock: polls at 0, the interval and twice the interval, never sooner', async () => {
   // x20: the 10 s interval is 500 ms real. Waits for 3 reads (10 s real at
   // most) rather than a fixed time: a loaded runner only delays them.
@@ -119,7 +170,11 @@ test('real clock: polls at 0, the interval and twice the interval, never sooner'
   const app = new BsbLanApp({ gladys, logger, store: memoryStore(), ...clock });
   const reads = () => adapter.hits.filter((h) => h.path === '/JI').map((h) => h.at);
   try {
-    await app.start({ address: `127.0.0.1:${adapter.port}`, poll_interval: 10 });
+    await within(
+      app.start({ address: `127.0.0.1:${adapter.port}`, poll_interval: 10 }),
+      10_000,
+      'start',
+    );
     const until = Date.now() + 10_000;
     while (reads().length < 3 && Date.now() < until) {
       await sleep(20);
@@ -150,7 +205,11 @@ test('real clock, x20: on 5.0.111 (buswritable 0) commands leave, each confirmed
   const ids = gladys.externalIds('bsblan', CAPTURE_MAC_ID);
   const results = [];
   try {
-    await app.start({ address: `127.0.0.1:${adapter.port}`, allow_commands: true });
+    await within(
+      app.start({ address: `127.0.0.1:${adapter.port}`, allow_commands: true }),
+      10_000,
+      'start',
+    );
     assert.ok(app.live, 'read once');
     assert.doesNotMatch(app.status()[1].fr, /lecture seule|ne dit pas/);
     for (let i = 0; i < 20; i += 1) {
@@ -158,7 +217,11 @@ test('real clock, x20: on 5.0.111 (buswritable 0) commands leave, each confirmed
       const before = clock.now();
       let error;
       try {
-        await app.setValue(device, { external_id: ids.feature('heating-setpoint') }, value);
+        await within(
+          app.setValue(device, { external_id: ids.feature('heating-setpoint') }, value),
+          10_000,
+          `command ${i}`,
+        );
       } catch (err) {
         error = err.message;
       }
@@ -168,7 +231,11 @@ test('real clock, x20: on 5.0.111 (buswritable 0) commands leave, each confirmed
     }
     // Protection, the option turned off: still sent.
     app.config.allowCommands = false;
-    await app.setValue(device, { external_id: ids.feature('mode') }, 'protection');
+    await within(
+      app.setValue(device, { external_id: ids.feature('mode') }, 'protection'),
+      10_000,
+      'Protection',
+    );
   } finally {
     app.stop();
     await adapter.close();
@@ -200,19 +267,25 @@ test('real clock (B1): Protection clicked while an older write waits for its ans
     );
   let kept;
   try {
-    await app.start({ address: `127.0.0.1:${adapter.port}`, allow_commands: true });
+    await within(
+      app.start({ address: `127.0.0.1:${adapter.port}`, allow_commands: true }),
+      10_000,
+      'start',
+    );
     const reduced = set('mode', 'reduced');
-    while (!adapter.hits.some((h) => h.write?.[1] === '2')) {
-      await sleep(5);
-    }
+    await waitFor(
+      () => adapter.hits.some((h) => h.write?.[1] === '2'),
+      10_000,
+      'the Reduced write',
+    );
     await sleep(100);
     const protection = set('mode', 'protection');
     await sleep(200);
-    await adapter.refuse();
-    await Promise.all([reduced, protection]);
+    await within(adapter.refuse(), 10_000, 'connections refused');
+    await within(Promise.all([reduced, protection]), 15_000, 'both commands answered');
     kept = app.memory.stops.map((k) => [k.role, k.sent]);
     await sleep(1500);
-    await adapter.accept();
+    await within(adapter.accept(), 10_000, 'connections accepted');
     // The retry of a stop not sent runs every 10 s.
     const until = Date.now() + 13_000;
     while (Date.now() < until && adapter.params[700].value !== '0') {
@@ -224,4 +297,231 @@ test('real clock (B1): Protection clicked while an older write waits for its ans
   }
   assert.deepEqual(kept, [['mode', 0]], 'kept, never lifted by the older write');
   assert.equal(adapter.params[700].value, '0');
+});
+
+// --- stop() (review r3, I1) ----------------------------------------------------
+// After stop(), nothing is armed again and nothing more is requested: a test
+// (or any process) that stops its app can exit. Real clock x10, the app's
+// timers counted, and counted BEFORE the safety stop() of the `finally`
+// (which clears them).
+
+const SPEED_STOP = 10;
+
+async function stoppable({ delayOf, store = memoryStore() } = {}) {
+  const adapter = await fakeAdapter({ delayOf });
+  const clock = scaled(SPEED_STOP);
+  const timers = counted(clock.timers);
+  const gladys = createFakeGladys({ config: {} });
+  await gladys.connect();
+  const app = new BsbLanApp({ gladys, logger, store, now: clock.now, timers });
+  const device = { external_id: `ext:test:bsblan:${CAPTURE_MAC_ID}` };
+  const ids = gladys.externalIds('bsblan', CAPTURE_MAC_ID);
+  const set = (role, value) =>
+    within(
+      app.setValue(device, { external_id: ids.feature(role) }, value),
+      15_000,
+      `${role} ${value}`,
+    ).then(
+      () => 'ok',
+      (err) => err.message,
+    );
+  const config = (more = {}) => ({
+    address: `127.0.0.1:${adapter.port}`,
+    poll_interval: 600,
+    ...more,
+  });
+  return { adapter, timers, gladys, app, set, config };
+}
+
+test('real clock (r3 I1): a kept stop rejected in the queue by stop() is never tried again; no timer left', async () => {
+  let slow = false;
+  const { adapter, timers, app, set, config } = await stoppable({
+    delayOf: (hit) => (slow && hit.path === '/JQ' ? 1500 : 0),
+  });
+  let left;
+  let tries = 0;
+  let hits;
+  try {
+    await within(app.start(config()), 10_000, 'start');
+    // Not sent (connections refused): kept, retried every 10 s.
+    await within(adapter.refuse(), 10_000, 'connections refused');
+    await set('mode', 'protection');
+    assert.deepEqual(
+      app.memory.stops.map((k) => [k.role, k.sent]),
+      [['mode', 0]],
+    );
+    await within(adapter.accept(), 10_000, 'connections accepted');
+    // A read whose /JQ is slow: its /JI shows the MAC, the stop is queued
+    // at once behind that /JQ (s10-after-stop of the review).
+    slow = true;
+    const count = adapter.hits.length;
+    const read = app.tick();
+    // The slow /JQ arrived at the adapter (it answers 1.5 s later), the stop waits behind it.
+    await waitFor(
+      () => app.stopFlight.size > 0 && adapter.hits.slice(count).some((h) => h.path === '/JQ'),
+      10_000,
+      'the stop queued behind the read',
+    );
+    assert.equal(app.memory.stops[0].sent, 0, 'still not sent when stop() is called');
+    const sendStop = app.sendStop.bind(app);
+    app.sendStop = (...args) => {
+      tries += 1;
+      return sendStop(...args);
+    };
+    hits = adapter.hits.length;
+    app.stop();
+    await within(read, 10_000, 'the read in flight');
+    // 35 s: three times the 10 s retry.
+    await sleep(3_500);
+    left = timers.live.size;
+  } finally {
+    app.stop();
+    await adapter.close();
+  }
+  assert.equal(tries, 0, 'never tried again after stop()');
+  assert.equal(adapter.hits.length, hits, 'nothing requested after stop()');
+  assert.equal(left, 0, 'no timer left');
+  assert.equal(app.memory.stops.length, 1, 'still kept (in /data): it leaves at the next start');
+});
+
+test('real clock (r3 I1): a write in flight when stop() is called arms no read and no timer', async () => {
+  const { adapter, timers, app, set, config } = await stoppable({
+    delayOf: (hit) => (hit.path === '/JS' ? 600 : 0),
+  });
+  let left;
+  let hits;
+  let answer;
+  let liveAtAnswer;
+  try {
+    await within(app.start(config({ allow_commands: true })), 10_000, 'start');
+    const reduced = set('mode', 'reduced');
+    await waitFor(() => adapter.hits.some((h) => h.write), 10_000, 'the write');
+    hits = adapter.hits.length;
+    app.stop();
+    answer = await reduced;
+    liveAtAnswer = timers.live.size;
+    // 25 s: past the follow-up reads (5 s and 20 s after a write).
+    await sleep(2_500);
+    left = timers.live.size;
+  } finally {
+    app.stop();
+    await adapter.close();
+  }
+  assert.match(answer, /sans confirmation/);
+  assert.equal(liveAtAnswer, 0, 'no follow-up read armed');
+  assert.equal(adapter.hits.length, hits, 'nothing requested after stop()');
+  assert.equal(left, 0, 'no timer left');
+});
+
+test('real clock (r3 I1): the test button after stop() reads nothing and arms nothing', async () => {
+  const { adapter, timers, app, config } = await stoppable();
+  let left;
+  let hits;
+  try {
+    await within(app.start(config()), 10_000, 'start');
+    app.stop();
+    hits = adapter.hits.length;
+    await within(app.testConnection(), 10_000, 'the test button');
+    await sleep(300);
+    left = timers.live.size;
+  } finally {
+    app.stop();
+    await adapter.close();
+  }
+  assert.equal(adapter.hits.length, hits, 'nothing requested after stop()');
+  assert.equal(left, 0, 'no timer left');
+});
+
+test('real clock (r3 I1): getConfig() settling after stop() neither starts nor retries', async () => {
+  const { adapter, timers, gladys, app, config } = await stoppable();
+  let left;
+  let calls = 0;
+  let liveAfterFailure;
+  const status = gladys.fake.connectionStatus;
+  try {
+    const failing = app.connectedWith(() => {
+      calls += 1;
+      return new Promise((resolve, reject) => setTimeout(() => reject(new Error('timeout')), 50));
+    });
+    app.stop();
+    await within(failing, 10_000, 'getConfig() failing');
+    liveAfterFailure = timers.live.size;
+    const answering = app.connectedWith(
+      () => new Promise((resolve) => setTimeout(() => resolve(config()), 50)),
+    );
+    await within(answering, 10_000, 'getConfig() answering');
+    // 7 s: past the first retry (5 s).
+    await sleep(700);
+    left = timers.live.size;
+  } finally {
+    app.stop();
+    await adapter.close();
+  }
+  assert.equal(liveAfterFailure, 0, 'no retry armed');
+  assert.equal(calls, 1, 'never asked again');
+  assert.deepEqual(gladys.fake.connectionStatus, status, 'no status after stop()');
+  assert.equal(app.adapter, undefined, 'not started');
+  assert.equal(adapter.hits.length, 0, 'nothing requested');
+  assert.equal(left, 0, 'no timer left');
+});
+
+test('real clock (r3 I1): getConfig() failed, stop() while its status is sent: never retried', async () => {
+  const { adapter, timers, gladys, app } = await stoppable();
+  let left;
+  const setConnectionStatus = gladys.setConnectionStatus.bind(gladys);
+  let said = 0;
+  gladys.setConnectionStatus = (...args) => {
+    said += 1;
+    return sleep(100).then(() => setConnectionStatus(...args));
+  };
+  let calls = 0;
+  try {
+    const failing = app.connectedWith(async () => {
+      calls += 1;
+      throw new Error('timeout');
+    });
+    await waitFor(() => said > 0, 10_000, 'the status sent');
+    app.stop();
+    await within(failing, 10_000, 'getConfig() failing');
+    // 7 s: past the first retry (5 s).
+    await sleep(700);
+    left = timers.live.size;
+  } finally {
+    app.stop();
+    await adapter.close();
+  }
+  assert.equal(calls, 1, 'never asked again');
+  assert.equal(left, 0, 'no timer left');
+});
+
+test('real clock (r3 I1): a start or a new configuration in progress when stop() is called arms nothing', async () => {
+  const { adapter, timers, app, config } = await stoppable();
+  let left;
+  let hits;
+  try {
+    // stop() while start() reads /data: that start goes no further.
+    const starting = app.start(config());
+    app.stop();
+    await within(starting, 10_000, 'start');
+    assert.equal(app.adapter, undefined, 'not started');
+    assert.equal(adapter.hits.length, 0, 'nothing requested');
+    assert.equal(timers.live.size, 0, 'no timer left after the start');
+    // Started, then other credentials saved: stop() while /data is saved.
+    await within(app.start(config()), 10_000, 'start');
+    const saving = app.configUpdated(config({ username: 'u', password: 'p' }));
+    app.stop();
+    hits = adapter.hits.length;
+    await within(saving, 10_000, 'other credentials');
+    // Another interval saved after stop().
+    await within(app.configUpdated(config({ poll_interval: 60 })), 10_000, 'another interval');
+    await sleep(300);
+    left = timers.live.size;
+  } finally {
+    app.stop();
+    await adapter.close();
+  }
+  assert.equal(adapter.hits.length, hits, 'nothing requested after stop()');
+  assert.equal(left, 0, 'no timer left');
+  assert.equal(app.config.username, '', 'not started again with the new credentials');
+  assert.equal(app.config.pollInterval, 600, 'nor with the new interval');
 });

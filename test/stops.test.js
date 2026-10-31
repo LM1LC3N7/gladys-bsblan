@@ -607,19 +607,56 @@ const snapshot = (bsb, ids) =>
     ids.filter((id) => Object.hasOwn(bsb.params, id)).map((id) => [id, bsb.params[id]]),
   );
 
+// A command of the role that never left, or left refused: the marking rule
+// (`touched` only in left() and keepStop) on each path (mutants T2-T5, T7 of r3).
+const NEVER_LEFT = [
+  { name: 'option off', allow: false, value: 'reduced', ack: /désactivées/ },
+  { name: 'refused before the controller (HTTP 400)', behave: statusOf(400), ack: /a refusé.*400/ },
+  {
+    name: 'refused by BSB-LAN (status 2)',
+    behave: (r) =>
+      r.endpoint === '/JS'
+        ? { status: 200, body: JSON.stringify({ [r.body.Parameter]: { status: 2 } }) }
+        : undefined,
+    ack: /a refusé.*status 2/,
+  },
+  {
+    name: 'not sent (unreachable)',
+    behave: (r) => (r.endpoint === '/JS' ? { error: 'unreachable', sent: false } : undefined),
+    ack: /non envoyée/,
+  },
+  // Comfort already (700 = 3): nothing sent.
+  { name: 'already so', value: 'comfort', ack: null },
+];
+
 test('r2 T1: an old stop from /data is never dropped by a command of its role that never left', async (t) => {
-  const store = memoryStore(
-    { stops: [{ mac: MAC_ID, role: 'mode', address: HOST, sent: 0, diff: 0 }] },
-    { unreadable: true },
-  );
-  const bsb = fakeBsbLan({ params: fullParams() });
-  const { command, advance, app } = await setup(t, { bsb, store });
-  // Option off: refused, nothing sent.
-  assert.match((await command('mode', 'comfort')).error, /désactivées/);
-  store.unreadable = false;
-  await advance(45 * SECOND);
-  assert.deepEqual(bsb.writes(), [['700', '0']]);
-  assert.deepEqual(app.memory.stops, [], 'sent, then seen applied');
+  for (const { name, allow = true, value = 'reduced', behave, ack } of NEVER_LEFT) {
+    await t.test(name, async (t) => {
+      const store = memoryStore(
+        { stops: [{ mac: MAC_ID, role: 'mode', address: HOST, sent: 0, diff: 0 }] },
+        { unreadable: true },
+      );
+      const bsb = fakeBsbLan({ params: fullParams() });
+      const { command, advance, app } = await setup(t, {
+        bsb,
+        store,
+        config: { address: HOST, allow_commands: allow },
+      });
+      bsb.behave = behave;
+      const answer = await command('mode', value);
+      if (ack) {
+        assert.match(answer.error, ack);
+      } else {
+        assert.equal(answer.success, true);
+      }
+      assert.deepEqual(bsb.writes(), [], 'nothing applied');
+      bsb.behave = undefined;
+      store.unreadable = false;
+      await advance(45 * SECOND);
+      assert.deepEqual(bsb.writes(), [['700', '0']]);
+      assert.deepEqual(app.memory.stops, [], 'sent, then seen applied');
+    });
+  }
 });
 
 test('r2 C1: a batch that left before the click (still Protection) never lifts the stop "applied"', async (t) => {

@@ -245,6 +245,8 @@ export class BsbLanApp {
     this.seen = new Map();
     this.generation = 0;
     this.started = false;
+    /** stop() called, no start() since: nothing is armed again (a test process can exit). */
+    this.stopped = false;
     this.lastStatus = undefined;
     this.published = undefined;
     this.badge = undefined;
@@ -404,8 +406,14 @@ export class BsbLanApp {
   async start(raw = {}) {
     const previous = this.adapter;
     this.stop();
+    this.stopped = false;
+    const generation = this.generation;
     await previous?.running;
     await this.loadMemory();
+    if (generation !== this.generation) {
+      // Stopped, or started again, meanwhile: this start arms nothing.
+      return;
+    }
     this.config = normalizeConfig(raw);
     this.adapter = this.config.address ? this.freshAdapter(this.config) : undefined;
     this.published = undefined;
@@ -423,8 +431,13 @@ export class BsbLanApp {
     await this.tick();
   }
 
+  /**
+   * Stops everything: no timer is left and none is armed again until the
+   * next start() (what was in flight when it was called ends on its own).
+   */
   stop() {
     this.generation += 1;
+    this.stopped = true;
     if (this.configTimer !== undefined) {
       this.timers.clearTimeout(this.configTimer);
       this.configTimer = undefined;
@@ -445,6 +458,14 @@ export class BsbLanApp {
     this.publisher.stop();
   }
 
+  /** A start asked by Gladys (connection, configuration): never after stop(). */
+  async startUnlessStopped(raw) {
+    if (this.stopped) {
+      return;
+    }
+    await this.start(raw);
+  }
+
   clearTimer() {
     if (this.adapter?.timer) {
       this.timers.clearTimeout(this.adapter.timer);
@@ -461,7 +482,7 @@ export class BsbLanApp {
   async connected(raw = {}) {
     if (!this.started) {
       this.started = true;
-      await this.start(raw);
+      await this.startUnlessStopped(raw);
       return;
     }
     if (this.needsRestart(raw)) {
@@ -491,17 +512,22 @@ export class BsbLanApp {
     try {
       raw = await getConfig();
     } catch {
+      if (this.stopped) {
+        // Stopped while it was asked: never tried again.
+        return;
+      }
       const wait = TIMINGS.configRetry[Math.min(this.configTries, TIMINGS.configRetry.length - 1)];
       this.configTries += 1;
       this.logger.warn(
         `The configuration could not be read: next try in ${Math.round(wait / 1000)} s`,
       );
-      this.lastStatus = undefined;
-      await this.setStatus(false, T.configNotRead(age(wait)));
+      // Armed before the status is awaited: a stop() meanwhile clears it.
       this.configTimer = this.timers.setTimeout(() => {
         this.configTimer = undefined;
         this.connectedWith(getConfig).catch(() => this.logger.error('Start failed'));
       }, wait);
+      this.lastStatus = undefined;
+      await this.setStatus(false, T.configNotRead(age(wait)));
       return;
     }
     this.configTries = 0;
@@ -531,11 +557,11 @@ export class BsbLanApp {
         this.memory.pausedUntil = 0;
       }
       await this.saveMemory();
-      await this.start(raw);
+      await this.startUnlessStopped(raw);
       return;
     }
     if (next.pollInterval !== this.config.pollInterval) {
-      await this.start(raw);
+      await this.startUnlessStopped(raw);
       return;
     }
     const previous = this.config;
@@ -592,7 +618,7 @@ export class BsbLanApp {
   /** One read at a time: a tick during a read joins it. `force`: the user asked. */
   tick({ force = false, periodic = false } = {}) {
     const adapter = this.adapter;
-    if (!adapter) {
+    if (!adapter || this.stopped) {
       return Promise.resolve();
     }
     if (!adapter.running) {
@@ -1702,6 +1728,10 @@ export class BsbLanApp {
 
   /** Reads after a command, spaced: its effect, then a check. */
   followUp() {
+    if (this.stopped) {
+      // A write that was in flight when stop() was called: no read after it.
+      return;
+    }
     const adapter = this.adapter;
     const generation = this.generation;
     // A write may have left: the next command waits a little, so that two
@@ -1786,6 +1816,7 @@ export class BsbLanApp {
    *     from before is never taken for "changed elsewhere";
    *   - never sent: tried again every TIMINGS.stopRetry, never given up
    *     (held while credentials are refused, until new ones or the button);
+   *     after stop(), kept in /data only: it leaves first at the next start;
    *   - it belongs to its adapter (MAC) and address: never written to
    *     another adapter; before the MAC is read, only to its own address.
    * /data is never awaited on this path: the next check is armed before
@@ -1922,6 +1953,10 @@ export class BsbLanApp {
 
   /** The next check of the stops not sent yet, armed before any save. */
   armStopCheck(delay = TIMINGS.stopRetry) {
+    // Stopped: never armed again, even by a try that stop() rejected (sendStop).
+    if (this.stopped) {
+      return;
+    }
     if (
       !this.memory.stops.some(
         (k) => k.sent === 0 || (k.restart && k.sent <= TIMINGS.protectiveResends),

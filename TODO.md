@@ -272,6 +272,15 @@ up to date at the end of every milestone.
     suite (stopped at 400 s, not a pass); O17, O18, O29 rewritten as O17',
     O18', T1–T3, all killed. S3h of r1 counts one extra call to `sendStop`
     when the adapter is back (the arm right after /JI, m1): one write only.
+  - Review r3 (`_lots/hors-lot/bsblan-r3.md`, REFUSÉ) fixed: I1 a regression
+    could hang the suite. Every wait of the real-clock tests is bounded
+    (`waitFor`, `within`), `npm test` has `--test-timeout=60000`; after
+    `stop()` nothing is armed again (`stopped`: no stop check, follow-up,
+    read, getConfig() retry, nor start from Gladys until the next `start()`;
+    a start or a configuration in progress goes no further), tested with
+    the app's timers counted (s10 of the review and five other paths); m1
+    the marking test (r2 T1) runs on the 4xx, status 2, not sent and
+    already so paths (T3, T4, T5, T7). S3f stays as agreed in r2.
   - Success after a read back of the written parameter (rule of Louis);
     equal to the start value: "not applied yet".
   - Extra parameters: up to 10, digits only, never one the integration
