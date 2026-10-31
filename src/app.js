@@ -268,7 +268,10 @@ export class BsbLanApp {
     this.ioSeq = 0;
     /** Arrival number of the last command: a stop is lifted only by a command that came after it. */
     this.arrival = 0;
-    /** `${mac}:${role}` that had a command this run: an old stop read from /data never overrides it. */
+    /**
+     * `${mac}:${role}` with a command that left unrefused, or a Protection
+     * kept, in this run: an old stop read late from /data never overrides it.
+     */
     this.touched = new Set();
     this.configTimer = undefined;
     this.configTries = 0;
@@ -645,6 +648,11 @@ export class BsbLanApp {
     const info = adapterOf(await client.info());
     // The MAC that answers at the address now, before anything else is read.
     adapter.lastMac = info?.mac;
+    // Its MAC is known now: the stops held for it leave at once, before the
+    // rest of this read (they were waiting for it, or kept from before a restart).
+    if (this.memory.stops.some((k) => k.mac === info?.mac && (k.sent === 0 || k.restart))) {
+      this.armStopCheck(0);
+    }
     if (!info?.mac) {
       throw unsupported('noMac');
     }
@@ -737,11 +745,6 @@ export class BsbLanApp {
       await this.saveMemory();
     }
     this.observe(info.mac, values, { stamps, periodic });
-    // The stops of this adapter not sent yet, or kept from before a restart
-    // (held until its MAC was read): now.
-    if (this.memory.stops.some((k) => k.mac === info.mac && (k.sent === 0 || k.restart))) {
-      this.armStopCheck(0);
-    }
   }
 
   /**
@@ -1196,7 +1199,6 @@ export class BsbLanApp {
     const wanted = this.parseCommand(target.role, value);
     // The order of the commands is the order of their arrival, never of their answers.
     const arrival = ++this.arrival;
-    this.touched.add(`${target.mac}:${target.role}`);
     if (wanted.protective) {
       // Protection (frost protection) and hot water Off: never held back.
       return this.protect(target, wanted, received, { arrival });
@@ -1431,8 +1433,16 @@ export class BsbLanApp {
     // The write left and was not refused: a kept stop counts a try; a
     // command that ARRIVED after a stop lifts it (never one that arrived
     // before, whenever its answer comes).
-    const left = () =>
-      protective ? this.stopSent(mac, role, writeStamp) : this.liftStopsBefore(mac, role, arrival);
+    const left = () => {
+      if (protective) {
+        this.stopSent(mac, role, writeStamp);
+        return;
+      }
+      // A command of this role left, unrefused: an older stop read late from
+      // /data never overrides it (reloadMemory).
+      this.touched.add(key);
+      this.liftStopsBefore(mac, role, arrival);
+    };
     this.logger.info(`BSB-LAN ${role}: ${wanted.value}`);
     let written;
     try {
@@ -1782,6 +1792,8 @@ export class BsbLanApp {
    * each save, and every save is bounded.
    */
   keepStop(mac, role, arrival) {
+    // A Protection kept in this run: never replaced by an older one from /data.
+    this.touched.add(`${mac}:${role}`);
     const stops = this.memory.stops.filter((k) => !(k.mac === mac && k.role === role));
     stops.push({
       mac,

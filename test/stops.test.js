@@ -598,3 +598,168 @@ test('I1: a stop queued while /JI shows another adapter at the address is not wr
   assert.deepEqual(bsb.writes(), [], 'never written to the other adapter');
   assert.equal(app.memory.stops.length, 1, 'kept for its own adapter');
 });
+
+// --- Review r2 (2026-10-31) ----------------------------------------------------
+
+/** The answer of a /JQ as the adapter has it now (to freeze it before a delay). */
+const snapshot = (bsb, ids) =>
+  Object.fromEntries(
+    ids.filter((id) => Object.hasOwn(bsb.params, id)).map((id) => [id, bsb.params[id]]),
+  );
+
+test('r2 T1: an old stop from /data is never dropped by a command of its role that never left', async (t) => {
+  const store = memoryStore(
+    { stops: [{ mac: MAC_ID, role: 'mode', address: HOST, sent: 0, diff: 0 }] },
+    { unreadable: true },
+  );
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { command, advance, app } = await setup(t, { bsb, store });
+  // Option off: refused, nothing sent.
+  assert.match((await command('mode', 'comfort')).error, /désactivées/);
+  store.unreadable = false;
+  await advance(45 * SECOND);
+  assert.deepEqual(bsb.writes(), [['700', '0']]);
+  assert.deepEqual(app.memory.stops, [], 'sent, then seen applied');
+});
+
+test('r2 C1: a batch that left before the click (still Protection) never lifts the stop "applied"', async (t) => {
+  const params = fullParams();
+  params[700] = { ...params[700], value: '0', desc: 'Protection' };
+  const bsb = fakeBsbLan({ params });
+  const { gladys, app, advance } = await setup(t, { bsb });
+  // The next read: its batch of 700 leaves (Protection), answers 1 s later;
+  // meanwhile the room unit sets Automatic and Protection is clicked; its
+  // first write is cut after it left.
+  let armed = true;
+  let cut = true;
+  bsb.behave = (r) => {
+    if (armed && r.endpoint === '/JQ' && r.ids[0] === '700' && r.ids.length === 4) {
+      armed = false;
+      return { delay: 1000, raw: snapshot(bsb, r.ids) };
+    }
+    if (r.endpoint === '/JS' && cut) {
+      cut = false;
+      return { error: 'unreachable', sent: true };
+    }
+    return undefined;
+  };
+  app.tick();
+  await settle();
+  for (let i = 0; i < 20 && armed; i += 1) {
+    await advance(100);
+  }
+  bsb.params[700] = { ...bsb.params[700], value: '1', desc: 'Automatic' };
+  const d = gladys.fake.devices.find((x) => x.external_id === device);
+  gladys.fake.setValue(
+    d,
+    d.features.find((x) => x.external_id === feature('mode')),
+    'protection',
+  );
+  await settle();
+  await advance(3 * SECOND);
+  assert.equal(app.memory.stops.length, 1, 'not lifted by the batch that left before the click');
+  await advance(60 * SECOND);
+  assert.equal(bsb.params[700].value, '0', 'written again by a periodic read, applied');
+});
+
+test('r2 O6: one read never counts twice (a command read, then the poll that takes it over)', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, app, advance } = await setup(t, {
+    bsb,
+    config: { address: HOST, allow_commands: true },
+  });
+  bsb.params[700] = { ...bsb.params[700], value: '1', desc: 'Automatic' };
+  await advance(35 * SECOND);
+  bsb.behave = failing;
+  const d = gladys.fake.devices.find((x) => x.external_id === device);
+  const f = (role) => d.features.find((x) => x.external_id === feature(role));
+  gladys.fake.setValue(d, f('mode'), 'protection');
+  await settle();
+  await advance(6 * SECOND);
+  assert.equal(app.memory.stops[0].after, 'automatic');
+  // Comfort at the unit, 700 read only now. A poll: its second batch is
+  // slow; a mode command passes between its batches, reads 700 (Comfort,
+  // once), is refused (read only); the poll then takes that read over.
+  bsb.params[700] = { ...bsb.params[700], value: '3', desc: 'Comfort', readwrite: 1 };
+  bsb.behave = (r) => (r.endpoint === '/JQ' && r.ids[0] === '716' ? { delay: 1500 } : failing(r));
+  app.tick();
+  await settle();
+  await advance(300);
+  let refused;
+  gladys.fake.setValue(d, f('mode'), 'reduced').then((a) => (refused = a));
+  await settle();
+  await advance(5 * SECOND);
+  assert.match(refused.error, /lecture seule/);
+  assert.equal(app.memory.stops.length, 1, 'one read of Comfort: not twice');
+  assert.equal(app.memory.stops[0].diff, 1);
+});
+
+test('r2 O7: a stop that never left takes no reference and is never lifted as "another mode"', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { command, app, advance } = await setup(t, { bsb });
+  bsb.behave = (r) => (r.endpoint === '/JS' ? { error: 'unreachable', sent: false } : undefined);
+  await command('mode', 'protection');
+  bsb.params[700] = { ...bsb.params[700], value: '2', desc: 'Reduced' };
+  await advance(2 * MINUTE);
+  assert.equal(app.memory.stops.length, 1);
+  assert.equal(app.memory.stops[0].sent, 0);
+  assert.equal(app.memory.stops[0].after, undefined);
+});
+
+test('r2 N12: after a credentials hold, a stop never sent leaves through a 5xx pause', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams(), auth: { username: 'u', password: 'p' } });
+  const { command, advance, app } = await setup(t, {
+    bsb,
+    config: { address: HOST, username: 'u', password: 'p' },
+  });
+  bsb.auth = { username: 'u', password: 'other' };
+  await advance(31 * SECOND);
+  await command('mode', 'protection');
+  assert.equal(app.memory.stops[0].sent, 0);
+  // Credentials back, but every read answers 503 (a pause, reads halted);
+  // a write is accepted.
+  bsb.auth = { username: 'u', password: 'p' };
+  bsb.behave = (r) => (r.endpoint === '/JS' ? undefined : { status: 503, body: 'busy' });
+  await advance(80 * MINUTE, 5 * SECOND);
+  assert.deepEqual(bsb.writes(), [['700', '0']]);
+});
+
+test('r2 O18: a stop held for its MAC leaves right after the /JI that shows it, before the rest of the read', async (t) => {
+  const store = memoryStore({
+    stops: [{ mac: MAC_ID, role: 'mode', address: '10.9.9.9', sent: 0, diff: 0 }],
+  });
+  const bsb = fakeBsbLan({ params: fullParams() });
+  bsb.behave = (r) => (r.endpoint === '/JQ' ? { delay: 1000 } : undefined);
+  await setup(t, { bsb, store });
+  const order = bsb.requests.map((r) => r.endpoint);
+  assert.equal(order[0], '/JI', 'held until its MAC is read');
+  const js = order.indexOf('/JS');
+  assert.ok(js !== -1 && js <= 3, order.slice(0, 6).join(' '));
+});
+
+test('r2 O20: a stop kept from before a restart is sent once at start, then only by periodic reads', async (t) => {
+  const store = memoryStore({
+    stops: [{ mac: MAC_ID, role: 'mode', address: HOST, sent: 1, diff: 0 }],
+  });
+  const bsb = fakeBsbLan({ params: fullParams() });
+  bsb.behave = ignoring;
+  const { advance } = await setup(t, { bsb, store });
+  await advance(25 * SECOND);
+  assert.equal(writes(bsb).length, 1, 'once at start, not every 10 s');
+});
+
+test('r2: an old stop read late from /data never repeats a Protection of this run already applied', async (t) => {
+  const store = memoryStore(
+    { stops: [{ mac: MAC_ID, role: 'mode', address: HOST, sent: 0, diff: 0 }] },
+    { unreadable: true },
+  );
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { command, advance } = await setup(t, { bsb, store });
+  assert.equal((await command('mode', 'protection')).success, true);
+  // Changed at the room unit afterwards.
+  bsb.params[700] = { ...bsb.params[700], value: '3', desc: 'Comfort' };
+  store.unreadable = false;
+  await advance(45 * SECOND);
+  assert.deepEqual(bsb.writes(), [['700', '0']]);
+  assert.equal(bsb.params[700].value, '3');
+});

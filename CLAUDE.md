@@ -102,7 +102,7 @@ scripts/cover.mjs            cover.png generator
   (`arrival`) and departure stamps (`ioSeq`, src/bsblan/client.js
   `DEPARTED`), never by answers: lifted only by a command that arrived
   after it and left unrefused, or another mode read twice after it left;
-  never written to another MAC; sent first after a restart (own address
+  never written to another MAC once one was read; sent first after a restart (own address
   only); /data never awaited on that path, an unreadable /data never
   overwritten.
 - **Write access**: the `readwrite` of the parameter in the fresh read

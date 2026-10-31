@@ -261,6 +261,17 @@ up to date at the end of every milestone.
     10 s check re-armed after a credentials hold: a successful read arms it
     again anyway). S3f of r1 uses stops without `address` (unreleased
     3b2dab6 format): by I1 they wait for the /JI, then leave.
+  - Review r2 (`_lots/hors-lot/bsblan-r2.md`, REFUSÉ) fixed: B1 `touched`
+    set only where a command of the role left unrefused or a Protection is
+    kept (T1 test); I1 tests C1 (O3, O15, O19), O6, O7; I2 N12 test (5xx
+    reads after a credentials hold); m1 stops held for a MAC armed right
+    after its /JI (O18 test); m2 real-clock poll test waits for its reads
+    (x20, wide margins); m3 docs; m4 O20 test. Reviewer mutants-r2 replayed:
+    all killed but B4, O16, O24, O25 (equivalent, as the reviewer said) and
+    O5 (equivalent: `seenSeq` is never below `writeSeq`); O30 hangs the
+    suite (stopped at 400 s, not a pass); O17, O18, O29 rewritten as O17',
+    O18', T1–T3, all killed. S3h of r1 counts one extra call to `sendStop`
+    when the adapter is back (the arm right after /JI, m1): one write only.
   - Success after a read back of the written parameter (rule of Louis);
     equal to the start value: "not applied yet".
   - Extra parameters: up to 10, digits only, never one the integration

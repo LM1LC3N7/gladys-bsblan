@@ -109,26 +109,33 @@ function scaled(speed) {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test('real clock: polls at 0, the interval and twice the interval, never sooner', async () => {
-  const SPEED = 100;
+  // x20: the 10 s interval is 500 ms real. Waits for 3 reads (10 s real at
+  // most) rather than a fixed time: a loaded runner only delays them.
+  const SPEED = 20;
   const adapter = await fakeAdapter();
   const clock = scaled(SPEED);
   const gladys = createFakeGladys({ config: {} });
   await gladys.connect();
   const app = new BsbLanApp({ gladys, logger, store: memoryStore(), ...clock });
+  const reads = () => adapter.hits.filter((h) => h.path === '/JI').map((h) => h.at);
   try {
     await app.start({ address: `127.0.0.1:${adapter.port}`, poll_interval: 10 });
-    await sleep(250);
+    const until = Date.now() + 10_000;
+    while (reads().length < 3 && Date.now() < until) {
+      await sleep(20);
+    }
   } finally {
     app.stop();
     await adapter.close();
   }
-  const reads = adapter.hits.filter((h) => h.path === '/JI').map((h) => h.at);
-  assert.ok(reads.length >= 3, `${reads.length} reads`);
+  const at = reads();
+  assert.ok(at.length >= 3, `${at.length} reads`);
   for (let i = 1; i < 3; i += 1) {
-    const gap = (reads[i] - reads[i - 1]) * SPEED;
-    // The interval counts from the end of a read (its requests take real ms).
+    const gap = (at[i] - at[i - 1]) * SPEED;
+    // Counted from the end of a read (its requests take real ms): never
+    // sooner than the interval; late only by load (wide margin).
     assert.ok(gap >= 0.9 * 10_000, `never sooner than the interval: ${gap}`);
-    assert.ok(gap < 2 * 10_000, `on time: ${gap}`);
+    assert.ok(gap < 4 * 10_000, `on time: ${gap}`);
   }
 });
 

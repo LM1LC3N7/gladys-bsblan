@@ -171,16 +171,22 @@ arrive and requests leave, never the order of the answers:
   applying it). While a periodic read still shows that mode, it is written
   again, once per periodic read (every 30 s by default), 3 times at most;
   it then stays kept and shown, never dropped with time;
-- only two things lift it: a later Gladys command of the same mode that
+- only these lift it: a later Gladys command of the same mode that
   arrived after it and left without being refused (a status 2, a 401 or a
   429 do not count), or another mode than the one left after it, read
   twice in a row after it left (someone changed it at the boiler). A value
-  read before it never counts;
-- it belongs to its adapter (MAC address) and address: never written to
-  another adapter. After a restart, a kept one leaves first, before any
-  read, when the address is its own; otherwise it waits for the MAC
-  address of the adapter and is held, said in the status, if another one
-  answers;
+  read before it never counts. An old stop read late from a `/data` that
+  could not be read at start is set aside only if a command of its mode
+  left unrefused, or a Protection of its mode was kept, in the meantime;
+- it belongs to its adapter (MAC address) and address: once a MAC address
+  is read, it is written only to its own adapter. Two cases cannot be
+  checked before writing, by choice (a stop is never held back for a
+  read): after a restart, a kept one leaves first, before any read, when
+  the address is its own (another device may have taken that address); and
+  a click right after the address was changed, before the first read of
+  the new adapter. A kept stop whose address changed waits for the MAC of
+  the adapter, leaves right after the read that shows it, and is held,
+  said in the status, if another one answers;
 - while credentials are refused, it waits for new credentials or the "Test
   the connection" button;
 - `/data` is never waited for on this path: a slow or stuck disk holds

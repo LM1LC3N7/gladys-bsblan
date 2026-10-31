@@ -182,16 +182,24 @@ commandes et de départ des requêtes, jamais l'ordre des réponses :
   mode, il est renvoyé, une fois par lecture périodique (toutes les 30 s par
   défaut), 3 fois au plus ; il reste ensuite gardé et signalé, jamais
   abandonné avec le temps ;
-- seules deux choses le lèvent : une commande Gladys du même mode arrivée
+- seules ces choses le lèvent : une commande Gladys du même mode arrivée
   après lui et partie sans être refusée (un statut 2, un 401 ou un 429 ne
   comptent pas), ou un autre mode que celui resté après lui, lu deux fois
   de suite après son envoi (quelqu'un l'a changé sur la chaudière). Une
-  valeur lue avant lui ne compte jamais ;
-- il appartient à son adaptateur (adresse MAC) et à son adresse : jamais
-  écrit sur un autre adaptateur. Après un redémarrage, un arrêt gardé part
-  en premier, avant toute lecture, si l'adresse est la sienne ; sinon il
-  attend l'adresse MAC de l'adaptateur, et reste gardé, signalé dans l'état,
-  si c'est un autre qui répond ;
+  valeur lue avant lui ne compte jamais. Un ancien arrêt relu tard dans un
+  `/data` illisible au démarrage n'est écarté que si une commande de son
+  mode est partie sans refus, ou une Protection de son mode a été gardée,
+  entre-temps ;
+- il appartient à son adaptateur (adresse MAC) et à son adresse : une fois
+  une adresse MAC lue, il n'est écrit que sur son propre adaptateur. Deux
+  cas ne peuvent pas être vérifiés avant l'écriture, par choix (un arrêt
+  n'attend jamais une lecture) : après un redémarrage, un arrêt gardé part
+  en premier, avant toute lecture, si l'adresse est la sienne (un autre
+  appareil a pu la prendre) ; et un clic juste après un changement
+  d'adresse, avant la première lecture du nouvel adaptateur. Un arrêt
+  gardé dont l'adresse a changé attend l'adresse MAC de l'adaptateur, part
+  juste après la lecture qui la montre, et reste gardé, signalé dans
+  l'état, si c'est un autre qui répond ;
 - pendant un refus d'identifiants, il attend de nouveaux identifiants ou le
   bouton « Tester la connexion » ;
 - `/data` n'est jamais attendu sur ce chemin : un disque lent ou bloqué ne
