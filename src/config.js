@@ -36,7 +36,8 @@ export function extraParamsOf(raw) {
     if (token === '') {
       continue;
     }
-    const id = /^\d{1,5}$/.test(token) ? String(Number(token)) : undefined;
+    // 1 to 99999 (BSB-LAN has no parameter 0; `param-0` is not a feature id).
+    const id = /^\d{1,5}$/.test(token) && Number(token) > 0 ? String(Number(token)) : undefined;
     if (id === undefined || BUILT_IN.has(id) || ids.includes(id) || ids.length >= EXTRA_LIMIT) {
       if (ignored.length < 5) {
         ignored.push(token.slice(0, 12));

@@ -262,8 +262,12 @@ export function extraOf(entry) {
   const name = cleanText(String(field(entry, 'name') ?? ''))?.slice(0, 60);
   const dataType = field(entry, 'dataType');
   const family = field(entry, 'dataType_family');
-  const numeric = (dataType === 0 || family === 'VALS') && NUMBER.test(text);
-  if (numeric) {
+  const vals = dataType === 0 || family === 'VALS';
+  if (vals && !NUMBER.test(text)) {
+    // A plain value BSB-LAN gives as a number, but too long or not one: never a text.
+    return undefined;
+  }
+  if (vals) {
     if (FAHRENHEIT.has(unit)) {
       return undefined;
     }

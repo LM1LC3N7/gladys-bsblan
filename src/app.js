@@ -75,7 +75,7 @@ import {
   writeAccess,
   writeOutcome,
 } from './params.js';
-import { BsbClient } from './bsblan/client.js';
+import { BsbClient, departedOf } from './bsblan/client.js';
 import { BsbError, CODES, isAuthRefused, isBusy, reasonOf } from './bsblan/errors.js';
 import { StatePublisher } from './publisher.js';
 import { memoryStore, normalizeMemory, serializeMemory } from './store.js';
@@ -264,6 +264,14 @@ export class BsbLanApp {
     /** `${mac}:${role}` of the kept stops being written now (never two at once). */
     this.stopFlight = new Set();
     this.stopTimer = undefined;
+    /** Departure stamp of the last request (src/bsblan/client.js): orders reads and writes. */
+    this.ioSeq = 0;
+    /** Arrival number of the last command: a stop is lifted only by a command that came after it. */
+    this.arrival = 0;
+    /** `${mac}:${role}` that had a command this run: an old stop read from /data never overrides it. */
+    this.touched = new Set();
+    this.configTimer = undefined;
+    this.configTries = 0;
     /** /data there but not readable: never overwritten, read again later. */
     this.memoryUnreadable = false;
     /** mac -> { id: { kind, name, unit } }: the read-only parameters of the configuration, as first seen. */
@@ -282,6 +290,7 @@ export class BsbLanApp {
         password: config.password,
         now: this.now,
         timers: this.timers,
+        depart: () => ++this.ioSeq,
         ...(this.request ? { request: this.request } : {}),
       }),
       /** What /JI said last (src/params.js adapterOf), and the MAC of the last good read. */
@@ -300,6 +309,8 @@ export class BsbLanApp {
       values: undefined,
       /** Heating circuit 2: true, false (its mode 1000 missing), undefined before a read. */
       hc2: undefined,
+      /** The MAC of the last /JI (a kept stop is written only to its own adapter). */
+      lastMac: undefined,
       timer: undefined,
       running: undefined,
       followUps: new Set(),
@@ -348,14 +359,25 @@ export class BsbLanApp {
     this.memory = {
       pausedUntil: Math.max(read.pausedUntil, mine.pausedUntil),
       auth: read.auth.until >= mine.auth.until ? read.auth : mine.auth,
+      // An old stop never overrides a command of its role made in this run.
       stops: [
         ...mine.stops,
-        ...read.stops.filter((k) => !mine.stops.some((m) => m.mac === k.mac && m.role === k.role)),
+        ...read.stops.filter(
+          (k) =>
+            !mine.stops.some((m) => m.mac === k.mac && m.role === k.role) &&
+            !this.touched.has(`${k.mac}:${k.role}`),
+        ),
       ],
     };
     this.memoryUnreadable = false;
     if (this.memory.stops.length > 0) {
       this.armStopCheck(0);
+    }
+    if (
+      read.stops.some((k) => !this.memory.stops.some((m) => m.mac === k.mac && m.role === k.role))
+    ) {
+      // An old stop set aside (a newer command of its role this run): gone from /data too.
+      void this.saveMemory();
     }
     return true;
   }
@@ -400,6 +422,10 @@ export class BsbLanApp {
 
   stop() {
     this.generation += 1;
+    if (this.configTimer !== undefined) {
+      this.timers.clearTimeout(this.configTimer);
+      this.configTimer = undefined;
+    }
     if (this.stopTimer !== undefined) {
       this.timers.clearTimeout(this.stopTimer);
       this.stopTimer = undefined;
@@ -445,6 +471,38 @@ export class BsbLanApp {
     this.lastStatus = undefined;
     this.gladys.forgetPublishedStates?.();
     await this.publishAll();
+  }
+
+  /**
+   * Connected to Gladys, its configuration to read first. A failure of
+   * getConfig() is said in the status and tried again, spaced (5 s, 15 s,
+   * 30 s, 1 min, then every 5 min), never given up; a new connection
+   * restarts the tries.
+   */
+  async connectedWith(getConfig) {
+    if (this.configTimer !== undefined) {
+      this.timers.clearTimeout(this.configTimer);
+      this.configTimer = undefined;
+    }
+    let raw;
+    try {
+      raw = await getConfig();
+    } catch {
+      const wait = TIMINGS.configRetry[Math.min(this.configTries, TIMINGS.configRetry.length - 1)];
+      this.configTries += 1;
+      this.logger.warn(
+        `The configuration could not be read: next try in ${Math.round(wait / 1000)} s`,
+      );
+      this.lastStatus = undefined;
+      await this.setStatus(false, T.configNotRead(age(wait)));
+      this.configTimer = this.timers.setTimeout(() => {
+        this.configTimer = undefined;
+        this.connectedWith(getConfig).catch(() => this.logger.error('Start failed'));
+      }, wait);
+      return;
+    }
+    this.configTries = 0;
+    await this.connected(raw);
   }
 
   needsRestart(raw) {
@@ -523,26 +581,26 @@ export class BsbLanApp {
     adapter.timer = this.timers.setTimeout(() => {
       adapter.timer = undefined;
       if (generation === this.generation) {
-        this.tick().catch(() => this.logger.error('BSB-LAN refresh failed'));
+        this.tick({ periodic: true }).catch(() => this.logger.error('BSB-LAN refresh failed'));
       }
     }, wait);
   }
 
   /** One read at a time: a tick during a read joins it. `force`: the user asked. */
-  tick({ force = false } = {}) {
+  tick({ force = false, periodic = false } = {}) {
     const adapter = this.adapter;
     if (!adapter) {
       return Promise.resolve();
     }
     if (!adapter.running) {
-      adapter.running = this.run(adapter, { force }).finally(() => {
+      adapter.running = this.run(adapter, { force, periodic }).finally(() => {
         adapter.running = undefined;
       });
     }
     return adapter.running;
   }
 
-  async run(adapter, { force }) {
+  async run(adapter, { force, periodic }) {
     const generation = this.generation;
     if (this.memoryUnreadable) {
       await this.reloadMemory();
@@ -554,7 +612,7 @@ export class BsbLanApp {
       this.halted(adapter, 'auth', this.memory.auth.until - now);
     } else {
       try {
-        await this.read(adapter, generation);
+        await this.read(adapter, generation, { periodic });
       } catch (err) {
         if (generation !== this.generation) {
           return;
@@ -582,9 +640,11 @@ export class BsbLanApp {
     adapter.wait = wait;
   }
 
-  async read(adapter, generation) {
+  async read(adapter, generation, { periodic = false } = {}) {
     const { client } = adapter;
     const info = adapterOf(await client.info());
+    // The MAC that answers at the address now, before anything else is read.
+    adapter.lastMac = info?.mac;
     if (!info?.mac) {
       throw unsupported('noMac');
     }
@@ -628,6 +688,8 @@ export class BsbLanApp {
     const merged = {};
     /** id -> the sequence number of the batch that read it. */
     const readAt = new Map();
+    /** id -> the departure stamp of the request that read it. */
+    const stamps = {};
     for (const batch of chunks(ids, LIMITS.parametersPerRead)) {
       const answer = await client.query(batch);
       if (generation !== this.generation) {
@@ -636,6 +698,7 @@ export class BsbLanApp {
       const seq = ++this.readSeq;
       for (const id of batch) {
         readAt.set(id, seq);
+        stamps[id] = departedOf(answer);
         if (Object.hasOwn(answer, id)) {
           merged[id] = answer[id];
         }
@@ -648,6 +711,7 @@ export class BsbLanApp {
     if (adapter.mac === info.mac) {
       for (const [id, fresh] of this.freshReads) {
         if (readAt.has(id) && fresh.seq > readAt.get(id)) {
+          stamps[id] = fresh.stamp;
           if (fresh.entry === undefined) {
             delete merged[id];
           } else {
@@ -672,7 +736,12 @@ export class BsbLanApp {
       this.memory.auth = { failures: 0, until: 0 };
       await this.saveMemory();
     }
-    this.observe(info.mac, values);
+    this.observe(info.mac, values, { stamps, periodic });
+    // The stops of this adapter not sent yet, or kept from before a restart
+    // (held until its MAC was read): now.
+    if (this.memory.stops.some((k) => k.mac === info.mac && (k.sent === 0 || k.restart))) {
+      this.armStopCheck(0);
+    }
   }
 
   /**
@@ -931,11 +1000,18 @@ export class BsbLanApp {
   async updateStatus() {
     const [connected, message] = this.status();
     // Where the kept stops stand, whatever the rest says.
-    const waiting = this.memory.stops.filter((k) => k.sent === 0).length;
-    const unconfirmed = this.memory.stops.length - waiting;
+    const held = this.memory.stops.filter(
+      (k) => this.adapter?.mac && this.adapter.mac !== k.mac,
+    ).length;
+    const mine = this.memory.stops.filter(
+      (k) => !(this.adapter?.mac && this.adapter.mac !== k.mac),
+    );
+    const waiting = mine.filter((k) => k.sent === 0).length;
+    const unconfirmed = mine.length - waiting;
     const notes = [
       ...(waiting > 0 ? [T.notes.stopWaiting(waiting)] : []),
       ...(unconfirmed > 0 ? [T.notes.stopUnconfirmed(unconfirmed)] : []),
+      ...(held > 0 ? [T.notes.stopOtherAdapter(held)] : []),
     ];
     await this.setStatus(connected, notes.length > 0 ? join2(message, join(notes)) : message);
   }
@@ -1118,9 +1194,12 @@ export class BsbLanApp {
       throw this.refusal(ERRORS.readOnly);
     }
     const wanted = this.parseCommand(target.role, value);
+    // The order of the commands is the order of their arrival, never of their answers.
+    const arrival = ++this.arrival;
+    this.touched.add(`${target.mac}:${target.role}`);
     if (wanted.protective) {
       // Protection (frost protection) and hot water Off: never held back.
-      return this.protect(target, wanted, received);
+      return this.protect(target, wanted, received, { arrival });
     }
     if (!this.config.allowCommands) {
       throw this.refusal(ERRORS.disabled);
@@ -1128,7 +1207,7 @@ export class BsbLanApp {
     if (this.inFlight || received < this.quietUntil) {
       throw this.refusal(ERRORS.stillRunning);
     }
-    const promise = this.command(target, wanted, received, this.stopEpoch);
+    const promise = this.command(target, wanted, received, this.stopEpoch, arrival);
     this.inFlight = promise;
     try {
       return await promise;
@@ -1191,7 +1270,7 @@ export class BsbLanApp {
     }
   }
 
-  async command(target, wanted, received, epoch) {
+  async command(target, wanted, received, epoch, arrival) {
     const generation = this.generation;
     const sendBy = received + TIMINGS.commandSendBy;
     this.checkBeforeSend(generation, target, wanted, epoch);
@@ -1213,6 +1292,7 @@ export class BsbLanApp {
             sendBy,
             readBy,
             epoch,
+            arrival,
           }),
         { startBy: readBy - TIMINGS.commandMinRead },
       );
@@ -1228,7 +1308,7 @@ export class BsbLanApp {
   }
 
   /** Keeps what a command's read gave: the values, the access, the sequence (src/app.js read). */
-  keepFresh(adapter, mac, ids, picked) {
+  keepFresh(adapter, mac, ids, picked, stamp) {
     const fresh = decode('bsb', picked);
     for (const id of ids) {
       for (const key of ID_KEYS[id] ?? []) {
@@ -1245,9 +1325,11 @@ export class BsbLanApp {
     }
     const seq = ++this.readSeq;
     for (const id of ids) {
-      this.freshReads.set(id, { seq, entry: picked[id] });
+      this.freshReads.set(id, { seq, entry: picked[id], stamp });
     }
-    this.observe(mac, adapter.values);
+    this.observe(mac, adapter.values, {
+      stamps: Object.fromEntries(ids.map((id) => [id, stamp])),
+    });
     // Shown in the background: the ack never waits for Gladys.
     this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
     return fresh;
@@ -1258,7 +1340,7 @@ export class BsbLanApp {
     raw,
     target,
     wanted,
-    { generation, adapter, received, sendBy, readBy, epoch },
+    { generation, adapter, received, sendBy, readBy, epoch, arrival },
   ) {
     const { mac, role } = target;
     const spec = COMMANDS[role];
@@ -1269,6 +1351,7 @@ export class BsbLanApp {
     let answer;
     try {
       const info = adapterOf(await raw.info({ answerBy: readBy }));
+      adapter.lastMac = info?.mac;
       if (!info?.mac || info.mac !== mac) {
         throw this.refusal(ERRORS.unknownDevice);
       }
@@ -1298,7 +1381,7 @@ export class BsbLanApp {
         picked[id] = answer[id];
       }
     }
-    const fresh = this.keepFresh(adapter, mac, ids, picked);
+    const fresh = this.keepFresh(adapter, mac, ids, picked, departedOf(answer));
 
     this.checkRange(role, wanted, fresh);
     // Read only (the parameter, or the whole bus): refused before anything leaves.
@@ -1322,6 +1405,7 @@ export class BsbLanApp {
       plan: { from: current, expected },
       received,
       sendBy,
+      arrival,
       // The very last check, right before the request leaves.
       beforeSend: () => this.checkBeforeSend(generation, target, wanted, epoch),
     });
@@ -1332,14 +1416,23 @@ export class BsbLanApp {
    * read shows the value asked. Equal to the value before: "not applied
    * yet"; not read in time: "sent, without confirmation".
    */
-  async writeAndConfirm(raw, target, wanted, { plan, received, sendBy, beforeSend, protective }) {
+  async writeAndConfirm(
+    raw,
+    target,
+    wanted,
+    { plan, received, sendBy, beforeSend, protective, arrival },
+  ) {
     const { mac, role } = target;
     const spec = COMMANDS[role];
     const key = `${mac}:${role}`;
     const answerBy = received + TIMINGS.commandAnswerBy;
-    // The write reached the controller (maybe): a kept stop counts a try; a
-    // newer command of the same role lifts the stop it supersedes.
-    const left = () => (protective ? this.stopSent(mac, role) : this.liftStop(mac, role, 'newer'));
+    // The stamp this write takes when it leaves (requests leave one at a time).
+    const writeStamp = this.ioSeq + 1;
+    // The write left and was not refused: a kept stop counts a try; a
+    // command that ARRIVED after a stop lifts it (never one that arrived
+    // before, whenever its answer comes).
+    const left = () =>
+      protective ? this.stopSent(mac, role, writeStamp) : this.liftStopsBefore(mac, role, arrival);
     this.logger.info(`BSB-LAN ${role}: ${wanted.value}`);
     let written;
     try {
@@ -1371,7 +1464,8 @@ export class BsbLanApp {
     const outcome = writeOutcome(written, wanted.id);
     if (outcome === 'refused') {
       if (protective) {
-        this.stopSent(mac, role);
+        // It left and BSB-LAN answered: a try (read only on the controller).
+        this.stopSent(mac, role, writeStamp);
       }
       this.followUp();
       throw this.refusal(ERRORS.refused('BSB-LAN status 2'));
@@ -1394,13 +1488,14 @@ export class BsbLanApp {
       const adapter = this.adapter;
       if (seen !== undefined && adapter?.values && adapter.mac === mac) {
         const seq = ++this.readSeq;
-        this.freshReads.set(wanted.id, { seq, entry });
+        const stamp = departedOf(again);
+        this.freshReads.set(wanted.id, { seq, entry, stamp });
         adapter.values[spec.key] =
           spec.kind === 'mode'
             ? { code: spec.codes[seen], key: seen }
             : temperature(entry, 0, 95).value;
         // Its own read back never writes it again (only a later read does).
-        this.observe(mac, adapter.values, { confirm: true });
+        this.observe(mac, adapter.values, { stamps: { [wanted.id]: stamp }, confirm: true });
         this.publishAll().catch((err) => this.logger.warn(`Publishing failed: ${err.message}`));
       }
     } catch (err) {
@@ -1430,7 +1525,7 @@ export class BsbLanApp {
    * configured, a PPS bus, another adapter read at the address, or BSB-LAN
    * busy past the budget (then sent as soon as it is free, within 30 s).
    */
-  async protect(target, wanted, received, { kept = false } = {}) {
+  async protect(target, wanted, received, { kept = false, arrival = 0 } = {}) {
     const adapter = this.adapter;
     if (!adapter) {
       throw this.refusal(ERRORS.noAdapter);
@@ -1444,14 +1539,19 @@ export class BsbLanApp {
     const generation = this.generation;
     const { mac, role } = target;
     const key = `${mac}:${role}`;
-    // The value in memory only tells "not applied" from "changed since".
-    const from = comparable(role, adapter.values);
     if (!kept) {
       // A click: cancels what arrived before it, and is kept (in /data,
-      // never awaited) until a read shows it applied.
+      // never awaited) until a read that left after it shows it applied.
       this.stopEpoch += 1;
-      this.keepStop(mac, role, from === wanted.key ? undefined : from);
+      this.keepStop(mac, role, arrival);
     }
+    const stop = this.stopOf(mac, role);
+    if (!stop || !this.canSendStop(stop)) {
+      // Kept for its own adapter: never written to another one.
+      throw this.refusal(ERRORS.stopHeld);
+    }
+    // Only for the guard of a later command ("already so"), never for the stop.
+    const from = comparable(role, adapter.values);
     this.stopFlight.add(key);
     const queuedAt = this.now();
     const session = adapter.client.session(
@@ -1470,13 +1570,14 @@ export class BsbLanApp {
             if (generation !== this.generation || this.adapter !== adapter) {
               throw this.refusal(ERRORS.unknownDevice);
             }
-            if (adapter.mac && adapter.mac !== mac) {
-              throw this.refusal(ERRORS.unknownDevice);
-            }
-            // A kept stop lifted while queued (a newer command left, another
-            // mode read twice, or seen applied) is not written again.
-            if (kept && !this.stopOf(mac, role)) {
+            // Lifted while queued (a newer command left, another mode read
+            // twice, or seen applied): not written; never to another adapter.
+            const now = this.stopOf(mac, role);
+            if (!now) {
               throw this.refusal(ERRORS.stopLifted);
+            }
+            if (!this.canSendStop(now)) {
+              throw this.refusal(ERRORS.stopHeld);
             }
           },
         });
@@ -1635,7 +1736,7 @@ export class BsbLanApp {
    * lifted on an unknown value. `confirm`: the read back of a write (it
    * never writes a stop again nor counts as a second read).
    */
-  observe(mac, values, { confirm = false } = {}) {
+  observe(mac, values, { stamps = {}, confirm = false, periodic = false } = {}) {
     for (const role of COMMAND_ROLES) {
       const key = `${mac}:${role}`;
       if (!this.guardActive(key)) {
@@ -1653,25 +1754,48 @@ export class BsbLanApp {
         this.guards.delete(key);
       }
     }
-    this.observeStops(mac, values, confirm);
+    this.observeStops(mac, values, { stamps, confirm, periodic });
   }
 
   // --- Kept stops (Protection, hot water Off) ------------------------------------
 
   /**
    * A protective command is kept in `memory.stops` (and /data) until a read
-   * shows it applied. Never lifted by time; lifted only by a newer command
-   * of the same role that left and was not refused, or by another mode
-   * (neither the stop nor the value before it) read twice in a row after
-   * it left. Never sent: retried every TIMINGS.stopRetry (through a pause;
-   * not while credentials are refused, until new ones or the test button).
-   * Sent but a later read shows the value before it: written again, 3 times
-   * at most. /data is never awaited on this path: the next check is armed
-   * before each save, and a save is never waited for.
+   * that LEFT after it shows it applied. Every decision rests on the
+   * departure order of the requests (`ioSeq` stamps) and the arrival order
+   * of the commands (`arrival`), never on when an answer comes back:
+   *   - lifted by a command of the same role that arrived after it, left and
+   *     was not refused (status 2, 4xx: kept); a stop read from /data is
+   *     older than any command of this run;
+   *   - "applied": a read of its own parameter that left after the click;
+   *   - after a write of it left, the first read of its parameter that left
+   *     after the write is the reference "not applied" (`after`); a later
+   *     periodic read still showing it writes it again (3 times at most, one
+   *     per periodic read); only another mode, read twice in a row on reads
+   *     that left after the write, lifts it (changed at the boiler). A value
+   *     from before is never taken for "changed elsewhere";
+   *   - never sent: tried again every TIMINGS.stopRetry, never given up
+   *     (held while credentials are refused, until new ones or the button);
+   *   - it belongs to its adapter (MAC) and address: never written to
+   *     another adapter; before the MAC is read, only to its own address.
+   * /data is never awaited on this path: the next check is armed before
+   * each save, and every save is bounded.
    */
-  keepStop(mac, role, from) {
+  keepStop(mac, role, arrival) {
     const stops = this.memory.stops.filter((k) => !(k.mac === mac && k.role === role));
-    stops.push({ mac, role, from, sent: 0, diff: 0 });
+    stops.push({
+      mac,
+      role,
+      address: this.adapter ? addressKey(this.adapter.address) : undefined,
+      sent: 0,
+      after: undefined,
+      other: undefined,
+      diff: 0,
+      arrival,
+      clickSeq: this.ioSeq,
+      writeSeq: 0,
+      seenSeq: this.ioSeq,
+    });
     this.memory.stops = stops;
     this.armStopCheck();
     void this.saveMemory();
@@ -1687,15 +1811,44 @@ export class BsbLanApp {
     return this.memory.stops.find((k) => k.mac === mac && k.role === role);
   }
 
+  /**
+   * A stop may be written to the adapter configured now: its MAC is the
+   * one read, or (MAC not read yet) the address is the stop's own.
+   */
+  canSendStop(stop) {
+    const adapter = this.adapter;
+    if (!adapter) {
+      return false;
+    }
+    // The last MAC /JI gave at this address (even before its read ends).
+    const known = adapter.lastMac ?? adapter.mac;
+    if (known) {
+      return known === stop.mac;
+    }
+    return stop.address !== undefined && stop.address === addressKey(adapter.address);
+  }
+
   /** A write of the stop left (a status, or a silence after it left). */
-  stopSent(mac, role) {
+  stopSent(mac, role, writeStamp) {
     const stop = this.stopOf(mac, role);
     if (stop) {
       stop.sent = Math.min(stop.sent + 1, 1000);
+      stop.restart = false;
+      stop.writeSeq = writeStamp;
+      stop.seenSeq = Math.max(stop.seenSeq ?? 0, writeStamp);
       stop.diff = 0;
+      stop.other = undefined;
       this.armStopCheck();
       void this.saveMemory();
       this.showStops();
+    }
+  }
+
+  /** A command that arrived after the stop left and was not refused: the stop gives way. */
+  liftStopsBefore(mac, role, arrival) {
+    const stop = this.stopOf(mac, role);
+    if (stop && (stop.arrival ?? 0) < arrival) {
+      this.liftStop(mac, role, 'lifted by a newer command');
     }
   }
 
@@ -1710,32 +1863,43 @@ export class BsbLanApp {
     this.showStops();
   }
 
-  observeStops(mac, values, confirm) {
+  observeStops(mac, values, { stamps = {}, confirm = false, periodic = false } = {}) {
     for (const stop of [...this.memory.stops]) {
       if (stop.mac !== mac) {
         continue;
       }
       const spec = COMMANDS[stop.role];
+      const stamp = stamps[spec.id];
       const value = comparable(stop.role, values);
-      if (value === undefined) {
+      // Only a read of its own parameter, that left after the click.
+      if (stamp === undefined || value === undefined || stamp <= (stop.clickSeq ?? 0)) {
         continue;
       }
       if (value === spec.protective) {
         this.liftStop(mac, stop.role, 'applied');
         continue;
       }
-      if (confirm || stop.sent === 0) {
-        // Its own read back, or never sent yet (the retry sends it).
+      // Before its write left, a read says nothing of it (the retry sends it).
+      if (stop.sent === 0 || stamp <= (stop.writeSeq ?? 0) || stamp <= (stop.seenSeq ?? 0)) {
         continue;
       }
-      if (stop.from !== undefined && value === stop.from) {
+      stop.seenSeq = stamp;
+      if (stop.after === undefined) {
+        // The first read after the write: what "not applied" looks like.
+        stop.after = value;
+      }
+      if (value === stop.after) {
         stop.diff = 0;
-        if (stop.sent <= TIMINGS.protectiveResends) {
+        stop.other = undefined;
+        if (periodic && !confirm && stop.sent <= TIMINGS.protectiveResends) {
           this.timers.setTimeout(() => this.sendStop(stop, 'written again'), 0);
         }
+        void this.saveMemory();
         continue;
       }
-      stop.diff += 1;
+      // Another mode than the one left after its write: changed at the boiler?
+      stop.diff = stop.other === value ? stop.diff + 1 : 1;
+      stop.other = value;
       if (stop.diff >= 2) {
         this.liftStop(mac, stop.role, 'lifted: another mode read twice');
       } else {
@@ -1746,8 +1910,18 @@ export class BsbLanApp {
 
   /** The next check of the stops not sent yet, armed before any save. */
   armStopCheck(delay = TIMINGS.stopRetry) {
-    if (this.stopTimer !== undefined || !this.memory.stops.some((k) => k.sent === 0)) {
+    if (
+      !this.memory.stops.some(
+        (k) => k.sent === 0 || (k.restart && k.sent <= TIMINGS.protectiveResends),
+      )
+    ) {
       return;
+    }
+    if (this.stopTimer !== undefined) {
+      if (delay !== 0) {
+        return;
+      }
+      this.timers.clearTimeout(this.stopTimer);
     }
     const generation = this.generation;
     this.stopTimer = this.timers.setTimeout(() => {
@@ -1760,8 +1934,9 @@ export class BsbLanApp {
 
   /**
    * Sends the kept stops: those never sent (at start: every one not past
-   * its resends). Refused credentials hold them until new ones are saved
-   * or the test button is pressed (`force`); a pause does not.
+   * its resends), only to their own adapter. Refused credentials hold them
+   * until new ones are saved or the test button is pressed (`force`); a
+   * pause does not.
    */
   flushStops({ atStart = false, force = false } = {}) {
     if (this.stopTimer !== undefined) {
@@ -1770,18 +1945,23 @@ export class BsbLanApp {
     }
     const authHeld = this.memory.auth.until > this.now() && !force && !atStart;
     for (const stop of [...this.memory.stops]) {
-      const due = atStart ? stop.sent <= TIMINGS.protectiveResends : stop.sent === 0;
-      if (due && !authHeld) {
+      // Never sent; or kept from before a restart (sent once this run, at
+      // start, or once its adapter's MAC is read when its address is not known).
+      const due = stop.sent === 0 || (stop.restart && stop.sent <= TIMINGS.protectiveResends);
+      if (due && !authHeld && this.canSendStop(stop)) {
         this.sendStop(stop, atStart ? 'sent after a restart' : 'sent again (not sent before)');
       }
     }
-    // Re-armed for those still not sent.
+    // Re-armed for those still not sent (also while credentials are refused).
     this.armStopCheck();
   }
 
   sendStop(stop, why) {
     const key = `${stop.mac}:${stop.role}`;
     if (this.stopFlight.has(key) || !this.memory.stops.includes(stop) || !this.adapter) {
+      return;
+    }
+    if (!this.canSendStop(stop)) {
       return;
     }
     const spec = COMMANDS[stop.role];

@@ -24,15 +24,18 @@ the notes of the version's GitHub Release.
   signal 7881, burner fault input S3 7870, last fault date 6800 and code 6801.
 - "Extra parameters to read": up to 10 BSB-LAN parameters, read only,
   named and typed from BSB-LAN's answer; never written.
+- getConfig() failing when Gladys connects: said in the status, tried again
+  (5 s, 15 s, 30 s, 1 min, then every 5 min).
 
 ### Changed
 
 - Protection (frost protection) of circuits 1 and 2 and hot water Off are
   never held back: no option needed, through a pause, refused credentials
   or another command, first in line, written again when a read shows them
-  not applied; kept in /data until seen applied (sent first after a
-  restart, never given up while not sent, lifted only by a newer setting
-  sent or another mode read twice).
+  not applied; kept in /data until a read that left after them shows them
+  applied (sent first after a restart, only to their own adapter; never
+  given up while not sent; lifted only by a command that arrived after
+  them and left unrefused, or by another mode read twice after they left).
 - A command is a success only once a read back shows the value asked.
 - New devices get the settable reduced setpoints; devices created before
   keep their read-only "Reduced setpoint" features, still updated.

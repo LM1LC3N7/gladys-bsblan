@@ -97,10 +97,14 @@ scripts/cover.mjs            cover.png generator
   behind the option, a pause, a stop, another command, a fresh read or the
   range; `urgent` in the Gate; bumps `stopEpoch` (a command that arrived
   before is refused in `checkBeforeSend`); written again by a later read
-  showing the start value (3 times at most); kept in `/data` (`stops`) until
-  read applied, never lifted by time (only a newer command of the role that
-  left, or another mode read twice); sent first after a restart; /data never
-  awaited on that path, an unreadable /data never overwritten.
+  showing the mode left after it (3 times at most, one per periodic read);
+  kept in `/data` (`stops`) until read applied. Ordered by arrival
+  (`arrival`) and departure stamps (`ioSeq`, src/bsblan/client.js
+  `DEPARTED`), never by answers: lifted only by a command that arrived
+  after it and left unrefused, or another mode read twice after it left;
+  never written to another MAC; sent first after a restart (own address
+  only); /data never awaited on that path, an unreadable /data never
+  overwritten.
 - **Write access**: the `readwrite` of the parameter in the fresh read
   first, else `buswritable` of /JI, never believed before firmware 5.1.19.
 - **Extra parameters**: read only, forever; never a command role.

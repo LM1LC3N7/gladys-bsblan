@@ -247,6 +247,20 @@ up to date at the end of every milestone.
     path (next check armed before each save, every wait bounded at 2 s); an
     unreadable /data (≠ missing) is never overwritten, read again at each
     save and poll, its stops merged. Mutants S1–S12 killed.
+  - Review r1 (`_lots/hors-lot/bsblan-r1.md`, REFUSÉ) fixed: B1 lifts by
+    arrival order only (`arrival`); B2 decisions on reads that left after
+    the click / the write (departure stamps), reference `after` = first
+    read after the write, status 0 kept and resent, never "changed
+    elsewhere" on an older or unknown value; I1 stops carry their address
+    and MAC, held for another MAC; I2 an old stop merged from /data skips a
+    role commanded this run; I3 tests for S5–S8 and S15 (start bounded);
+    m2 one resend per periodic read; m3 parameter 0 refused; m4 test of
+    1614 in 1612's bound; m5 getConfig() retried in `connected`. Reviewer
+    mutants replayed (those whose code was rewritten replaced by N1–N20);
+    survivors left as equivalent: B4 (the ceiling refused before), N12 (the
+    10 s check re-armed after a credentials hold: a successful read arms it
+    again anyway). S3f of r1 uses stops without `address` (unreleased
+    3b2dab6 format): by I1 they wait for the /JI, then leave.
   - Success after a read back of the written parameter (rule of Louis);
     equal to the start value: "not applied yet".
   - Extra parameters: up to 10, digits only, never one the integration

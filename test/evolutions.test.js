@@ -328,25 +328,39 @@ test('success only after a read back: accepted but unchanged is "not applied yet
   assert.match(ack2.error, /envoyée, sans confirmation.*not read back/);
 });
 
-test('a protective write a read shows not applied is written again, 3 times at most; never against a change', async (t) => {
+test('a protective write a read shows not applied is written again, one per periodic read, 3 times at most', async (t) => {
   const bsb = fakeBsbLan({ params: fullParams() });
-  const { command, advance } = await setup(t, { bsb });
+  const { command, advance, app } = await setup(t, { bsb });
   bsb.behave = (r) =>
     r.endpoint === '/JS'
       ? { status: 200, body: JSON.stringify({ [r.body.Parameter]: { status: 1 } }) }
       : undefined;
   const ack = await command('mode', 'protection');
   assert.match(ack.error, /encore la précédente/);
-  await advance(2 * MINUTE);
+  // The follow-up reads (5 s, 20 s) never write it again.
+  await advance(22 * SECOND);
+  assert.deepEqual(writes(bsb), [['700', '0']]);
+  // One write per periodic read (every 30 s), 3 at most, then kept, unsent.
+  await advance(5 * MINUTE);
   assert.deepEqual(writes(bsb), Array(4).fill(['700', '0']));
-  // Another time: the user sets Reduced at the boiler after it: never fought.
-  bsb.requests.length = 0;
-  await advance(2 * MINUTE);
-  const ack2 = await command('hc2-mode', 'protection', { wait: SECOND });
-  assert.match(ack2.error, /encore la précédente/);
+  assert.equal(app.memory.stops.length, 1, 'still kept, never lifted by time');
+  await advance(5 * MINUTE);
+  assert.equal(writes(bsb).length, 4);
+});
+
+test('a protective command not applied, then another mode read twice at the boiler: lifted, never fought', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { command, advance, app } = await setup(t, { bsb });
+  bsb.behave = (r) =>
+    r.endpoint === '/JS'
+      ? { status: 200, body: JSON.stringify({ [r.body.Parameter]: { status: 1 } }) }
+      : undefined;
+  const ack = await command('hc2-mode', 'protection', { wait: SECOND });
+  assert.match(ack.error, /encore la précédente/);
   bsb.params[1000] = { ...bsb.params[1000], value: '2', desc: 'Reduced' };
   await advance(2 * MINUTE);
   assert.deepEqual(writes(bsb), [['1000', '0']]);
+  assert.deepEqual(app.memory.stops, []);
 });
 
 test('extra parameters: read only features as BSB-LAN describes them, never written', async (t) => {
@@ -533,4 +547,51 @@ test('every published supported_options follows the core rules (text/select, bot
       }
     });
   }
+});
+
+test('hot water reduced setpoint: 1614 bounds it when below 1610 (out of order on the controller)', async (t) => {
+  const params = fullParams();
+  params[1610] = { ...params[1610], value: '60' };
+  params[1614] = { ...params[1614], value: '55.0' };
+  const { bsb, command } = await setup(t, { bsb: fakeBsbLan({ params }) });
+  assert.match((await command('dhw-reduced-target', 57)).error, /entre 10 et 55 °C/);
+  assert.equal((await command('dhw-reduced-target', 55)).success, true);
+  assert.deepEqual(writes(bsb), [['1612', '55']]);
+});
+
+test('extra parameters: "0" refused; a plain number too long is never a text', async () => {
+  const { extraParamsOf } = await import('../src/config.js');
+  const { extraOf } = await import('../src/params.js');
+  const parsed = extraParamsOf('0, 00, 7, 007');
+  assert.deepEqual(parsed.ids, ['7']);
+  assert.deepEqual(parsed.ignored, ['0', '00', '007']);
+  assert.equal(
+    extraOf({ name: 'x', error: 0, value: '9999999', dataType: 0, unit: 'Mois' }),
+    undefined,
+  );
+  assert.equal(extraOf({ name: 'x', error: 0, value: 'abc', dataType_family: 'VALS' }), undefined);
+});
+
+test('hot water setpoints: refused when 1610, 1612 or 1614 is missing (never a NaN bound)', async (t) => {
+  for (const missing of ['1610', '1612', '1614']) {
+    await t.test(missing, async (t) => {
+      const params = fullParams();
+      delete params[missing];
+      const { bsb, command } = await setup(t, { bsb: fakeBsbLan({ params }) });
+      for (const [role, value] of [
+        ['dhw-setpoint', 45],
+        ['dhw-reduced-target', 35],
+      ]) {
+        assert.match((await command(role, value)).error, /plage permise|non envoyée/, role);
+      }
+      assert.deepEqual(writes(bsb), []);
+    });
+  }
+});
+
+test('extra parameters: at most 10', async () => {
+  const { extraParamsOf } = await import('../src/config.js');
+  const parsed = extraParamsOf('1,2,3,4,5,6,7,8,9,10,11,12');
+  assert.equal(parsed.ids.length, 10);
+  assert.deepEqual(parsed.ignored, ['11', '12']);
 });

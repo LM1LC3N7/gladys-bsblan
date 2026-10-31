@@ -19,6 +19,14 @@ import { BsbError, CODES } from './errors.js';
 import { httpRequest } from './http.js';
 
 const UTF8 = new TextDecoder('utf-8', { fatal: true });
+
+/**
+ * The departure stamp of an answer (a hidden key of the decoded object):
+ * the number `depart()` gave when its request left. Requests leave one at
+ * a time (the Gate), so stamps order them by departure, never by answer.
+ */
+export const DEPARTED = Symbol('departed');
+export const departedOf = (answer) => answer?.[DEPARTED];
 const LATIN1 = new TextDecoder('latin1');
 
 /** Retry-After: seconds or an HTTP date, in ms (undefined when absent or unreadable). */
@@ -155,8 +163,11 @@ export class BsbClient {
     request = httpRequest,
     now = Date.now,
     timers = globalThis,
+    depart,
   }) {
     this.address = address;
+    /** Gives the departure stamp of each request (src/app.js), right before it leaves. */
+    this.depart = depart;
     this.request = request;
     this.now = now;
     // Kept in this closure only: never on a property a log could print.
@@ -211,6 +222,7 @@ export class BsbClient {
         throw err;
       }
     }
+    const stamp = this.depart?.();
     let answer;
     try {
       answer = await this.request({
@@ -243,7 +255,11 @@ export class BsbClient {
         sent: true,
       });
     }
-    return decodeBody(answer.body);
+    const value = decodeBody(answer.body);
+    if (stamp !== undefined) {
+      Object.defineProperty(value, DEPARTED, { value: stamp });
+    }
+    return value;
   }
 
   /** The adapter information (/JI): name, version, MAC, bus, buswritable. */

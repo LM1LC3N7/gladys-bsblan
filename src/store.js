@@ -6,8 +6,9 @@
 //   - `auth`: `{ failures, until }` after credentials refused (401/403): no
 //     request before `until`, the next tries spaced (15 min, 1 h, 6 h, 24 h);
 //   - `stops`: the protective commands kept until a read shows them applied
-//     (Protection on 700/1000, hot water Off on 1600): `{ mac, role, from,
-//     sent, diff }`, one per role and adapter. Never lifted by time.
+//     (Protection on 700/1000, hot water Off on 1600): `{ mac, role,
+//     address, sent, after, other, diff }`, one per role and adapter. Never
+//     lifted by time.
 // A file that cannot be read (other than missing) is NOT empty: `load`
 // throws, and the app never overwrites it (src/app.js saveMemory).
 // Never a secret: no passkey, no user name, no password, not even a hash of
@@ -127,11 +128,12 @@ export function normalizeMemory(raw, now) {
  */
 export function normalizeStops(list) {
   const count = (value, max) => (Number.isInteger(value) && value >= 0 ? Math.min(value, max) : 0);
+  const value = (v) => (typeof v === 'string' && STOP_VALUES.has(v) ? v : undefined);
   const out = [];
   for (const entry of Array.isArray(list) ? list.slice(0, 20) : []) {
     const mac = own(entry, 'mac');
     const role = own(entry, 'role');
-    const from = own(entry, 'from');
+    const address = own(entry, 'address');
     if (
       typeof mac !== 'string' ||
       !/^[0-9a-f]{12}$/.test(mac) ||
@@ -140,12 +142,26 @@ export function normalizeStops(list) {
     ) {
       continue;
     }
+    const other = value(own(entry, 'other'));
     out.push({
       mac,
       role,
-      from: typeof from === 'string' && STOP_VALUES.has(from) ? from : undefined,
+      // host or host:port, never a path nor credentials (not a secret).
+      address:
+        typeof address === 'string' && /^[a-z0-9.-]{1,253}(:\d{1,5})?$/.test(address)
+          ? address
+          : undefined,
       sent: count(own(entry, 'sent'), 1000),
-      diff: count(own(entry, 'diff'), 1),
+      after: value(own(entry, 'after')),
+      other,
+      diff: other === undefined ? 0 : count(own(entry, 'diff'), 1),
+      // Runtime only: older than any command and any request of this run;
+      // `restart`: to send once this run (first, or right after its MAC is read).
+      restart: true,
+      arrival: 0,
+      clickSeq: 0,
+      writeSeq: 0,
+      seenSeq: 0,
     });
   }
   return out.slice(0, STOP_MAX);
@@ -154,11 +170,13 @@ export function normalizeStops(list) {
 export const serializeMemory = ({ pausedUntil, auth, stops = [] }) => ({
   pausedUntil,
   auth: { failures: auth.failures, until: auth.until },
-  stops: stops.map(({ mac, role, from, sent, diff }) => ({
+  stops: stops.map(({ mac, role, address, sent, after, other, diff }) => ({
     mac,
     role,
-    ...(from === undefined ? {} : { from }),
+    ...(address === undefined ? {} : { address }),
     sent,
+    ...(after === undefined ? {} : { after }),
+    ...(other === undefined ? {} : { other }),
     diff,
   })),
 });

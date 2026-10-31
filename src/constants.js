@@ -158,6 +158,8 @@ export const TIMINGS = {
   protectiveWait: 30 * SECOND,
   /** A kept stop not sent yet is tried again this often (never given up). */
   stopRetry: 10 * SECOND,
+  /** getConfig() failed when connected: tried again after 5 s, 15 s, 30 s, 1 min, then every 5 min. */
+  configRetry: [5 * SECOND, 15 * SECOND, 30 * SECOND, MINUTE, 5 * MINUTE],
   /** /data is never waited for longer than this (a frozen disk holds nothing). */
   dataWait: 2 * SECOND,
 };

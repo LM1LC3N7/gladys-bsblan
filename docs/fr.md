@@ -167,22 +167,38 @@ encore parties (« une commande de protection est arrivée après »). BSB-LAN
 ne sert qu'une requête à la fois : ils attendent la fin de celle qu'il
 traite. S'il est encore occupé au bout de 3,5 s, Gladys répond « la commande
 passe en tête et part dès qu'il est libre » et l'envoie dès que possible
-(sous 30 s). Si une lecture suivante montre encore l'ancien mode, ils sont
-renvoyés (3 fois au plus).
+(sous 30 s).
 
-Chacun est **gardé** (aussi dans `/data`) jusqu'à ce qu'une lecture le
-montre appliqué. Il n'est jamais abandonné avec le temps : s'il n'est jamais
-parti (BSB-LAN injoignable, trop lent), il est réessayé toutes les 10
-secondes aussi longtemps qu'il le faut ; après un redémarrage, un arrêt
-gardé part en premier, avant toute lecture. Seules deux choses le lèvent :
-un réglage plus récent du même mode envoyé par Gladys et accepté, ou un
-autre mode (ni Protection/Arrêt ni celui d'avant) lu deux fois de suite,
-signe qu'on l'a changé sur la chaudière. Pendant un refus d'identifiants, il
-attend de nouveaux identifiants ou le bouton « Tester la connexion ».
-`/data` n'est jamais attendu sur ce chemin : un disque lent ou bloqué ne
-retient rien, et un `/data` illisible n'est jamais écrasé (il est relu plus
-tard). L'état de l'intégration dit combien attendent ou ne sont pas encore
-vus appliqués.
+Chacun est **gardé** (aussi dans `/data`) jusqu'à ce qu'une lecture partie
+après le clic le montre appliqué. Toute décision suit l'ordre d'arrivée des
+commandes et de départ des requêtes, jamais l'ordre des réponses :
+
+- s'il n'est jamais parti (BSB-LAN injoignable, trop lent), il est réessayé
+  toutes les 10 secondes aussi longtemps qu'il le faut, jamais abandonné
+  avec le temps ;
+- une fois parti, la première lecture de son paramètre partie après lui
+  montre à quoi ressemble « pas appliqué » (BSB-LAN peut répondre statut 0,
+  ou 1 sans l'appliquer). Tant qu'une lecture périodique montre encore ce
+  mode, il est renvoyé, une fois par lecture périodique (toutes les 30 s par
+  défaut), 3 fois au plus ; il reste ensuite gardé et signalé, jamais
+  abandonné avec le temps ;
+- seules deux choses le lèvent : une commande Gladys du même mode arrivée
+  après lui et partie sans être refusée (un statut 2, un 401 ou un 429 ne
+  comptent pas), ou un autre mode que celui resté après lui, lu deux fois
+  de suite après son envoi (quelqu'un l'a changé sur la chaudière). Une
+  valeur lue avant lui ne compte jamais ;
+- il appartient à son adaptateur (adresse MAC) et à son adresse : jamais
+  écrit sur un autre adaptateur. Après un redémarrage, un arrêt gardé part
+  en premier, avant toute lecture, si l'adresse est la sienne ; sinon il
+  attend l'adresse MAC de l'adaptateur, et reste gardé, signalé dans l'état,
+  si c'est un autre qui répond ;
+- pendant un refus d'identifiants, il attend de nouveaux identifiants ou le
+  bouton « Tester la connexion » ;
+- `/data` n'est jamais attendu sur ce chemin : un disque lent ou bloqué ne
+  retient rien, et un `/data` illisible n'est jamais écrasé (relu plus tard ;
+  un arrêt gardé qu'il contient est écarté si une commande de son mode a été
+  faite depuis). L'état dit combien attendent, ne sont pas encore vus
+  appliqués, ou sont gardés pour un autre adaptateur.
 
 Ils sont refusés seulement quand ils ne peuvent pas partir : aucun
 adaptateur configuré, bus PPS, autre adaptateur lu à l'adresse (autre

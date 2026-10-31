@@ -155,6 +155,11 @@ export const T = {
     return typed ? join([text, both(`(${typed})`, `(${typed})`)]) : text;
   },
   connecting: both('Reading BSB-LAN…', 'Lecture de BSB-LAN…'),
+  configNotRead: (wait) =>
+    both(
+      `The configuration of the integration could not be read from Gladys: next try in ${wait.en}.`,
+      `La configuration de l'intégration n'a pas pu être lue dans Gladys : nouvel essai dans ${wait.fr}.`,
+    ),
   connected: ({ model, bus, version }, notes = []) =>
     join([
       both(
@@ -228,8 +233,13 @@ export const T = {
       ),
     stopUnconfirmed: (n) =>
       both(
-        `${n} protective command(s) sent, not yet seen applied: written again when a read still shows the previous mode (3 times at most).`,
-        `${n} commande(s) de protection envoyée(s), pas encore vue(s) appliquée(s) : renvoyée(s) si une lecture montre encore l'ancien mode (3 fois au plus).`,
+        `${n} protective command(s) sent, not yet seen applied: written again when a periodic read still shows the mode left after it (3 times at most).`,
+        `${n} commande(s) de protection envoyée(s), pas encore vue(s) appliquée(s) : renvoyée(s) si une lecture périodique montre encore le mode resté après elle (3 fois au plus).`,
+      ),
+    stopOtherAdapter: (n) =>
+      both(
+        `${n} protective command(s) kept for another adapter (another MAC address): never written to this one.`,
+        `${n} commande(s) de protection gardée(s) pour un autre adaptateur (autre adresse MAC) : jamais écrite(s) sur celui-ci.`,
       ),
     extraIgnored: (list) =>
       both(
@@ -348,6 +358,10 @@ export const ERRORS = {
     ),
   refused: (reason) =>
     both(`BSB-LAN refused the command (${reason}).`, `BSB-LAN a refusé la commande (${reason}).`),
+  stopHeld: both(
+    'The protective command is kept for its own adapter (MAC address not read yet, or another adapter answers): sent as soon as it answers.',
+    "La commande de protection est gardée pour son propre adaptateur (adresse MAC pas encore lue, ou autre adaptateur) : envoyée dès qu'il répond.",
+  ),
   stopLifted: both(
     'The protective command was lifted meanwhile (applied, or overtaken by a newer setting): not written again.',
     'La commande de protection a été levée entre-temps (appliquée, ou remplacée par un réglage plus récent) : pas renvoyée.',

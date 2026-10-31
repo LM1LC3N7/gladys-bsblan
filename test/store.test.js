@@ -38,7 +38,16 @@ test('the file: written atomically, 0600 where it applies, no secret in it', asy
   const memory = {
     pausedUntil: NOW + 60_000,
     auth: { failures: 1, until: NOW + HOUR },
-    stops: [{ mac: '008041196990', role: 'mode', from: 'comfort', sent: 1, diff: 0 }],
+    stops: [
+      {
+        mac: '008041196990',
+        role: 'mode',
+        address: '192.168.1.50',
+        sent: 1,
+        after: 'comfort',
+        diff: 0,
+      },
+    ],
   };
   await store.save(serializeMemory(memory));
   assert.deepEqual(await store.load(), memory);
@@ -56,18 +65,51 @@ test('kept stops: repaired, never aged; a file there but unreadable is not empty
   const m = normalizeMemory(
     {
       stops: [
-        { mac: '008041196990', role: 'mode', from: 'comfort', sent: 'x', diff: 9 },
+        {
+          mac: '008041196990',
+          role: 'mode',
+          address: '192.168.1.50:8080',
+          after: 'comfort',
+          other: 'reduced',
+          sent: 'x',
+          diff: 9,
+        },
         { mac: '008041196990', role: 'mode', sent: 2 },
         { mac: 'nope', role: 'mode' },
         { mac: '008041196990', role: 'heating-setpoint' },
-        { mac: '008041196990', role: 'dhw-mode-select', from: '__proto__', sent: 3 },
+        {
+          mac: '008041196990',
+          role: 'dhw-mode-select',
+          address: 'http://u:p@x/1234',
+          after: '__proto__',
+          sent: 3,
+        },
       ],
     },
     NOW,
   );
+  const runtime = { restart: true, arrival: 0, clickSeq: 0, writeSeq: 0, seenSeq: 0 };
   assert.deepEqual(m.stops, [
-    { mac: '008041196990', role: 'mode', from: 'comfort', sent: 0, diff: 1 },
-    { mac: '008041196990', role: 'dhw-mode-select', from: undefined, sent: 3, diff: 0 },
+    {
+      mac: '008041196990',
+      role: 'mode',
+      address: '192.168.1.50:8080',
+      sent: 0,
+      after: 'comfort',
+      other: 'reduced',
+      diff: 1,
+      ...runtime,
+    },
+    {
+      mac: '008041196990',
+      role: 'dhw-mode-select',
+      address: undefined,
+      sent: 3,
+      after: undefined,
+      other: undefined,
+      diff: 0,
+      ...runtime,
+    },
   ]);
   const base = fileURLToPath(new URL('../data/', import.meta.url));
   await mkdir(base, { recursive: true });

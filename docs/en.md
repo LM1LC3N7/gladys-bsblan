@@ -158,21 +158,36 @@ every queued request and cancel the commands not sent yet ("a protective
 command came after this one"). BSB-LAN serves one request at a time: they
 wait for the end of the one it serves. Still busy after 3.5 s, Gladys
 answers "the command is queued first and leaves as soon as it is free" and
-sends it as soon as possible (within 30 s). If a later read still shows the
-previous mode, they are written again (3 times at most).
+sends it as soon as possible (within 30 s).
 
-Each one is **kept** (in `/data` too) until a read shows it applied. It is
-never dropped with time: one that never left (BSB-LAN unreachable, too
-slow) is tried again every 10 seconds for as long as needed; after a
-restart, a kept one leaves first, before any read. Only two things lift it:
-a newer setting of the same mode sent by Gladys and accepted, or another
-mode (neither Protection/Off nor the one before) read twice in a row, which
-means someone changed it on the boiler. While credentials are refused, a
-kept one waits for new credentials or the "Test the connection" button.
-`/data` is never waited for on this path: a slow or stuck disk holds
-nothing, and a `/data` that cannot be read is never overwritten (it is read
-again later). The status of the integration says how many are waiting or
-not yet seen applied.
+Each one is **kept** (in `/data` too) until a read that left after the
+click shows it applied. Every decision follows the order in which commands
+arrive and requests leave, never the order of the answers:
+
+- one that never left (BSB-LAN unreachable, too slow) is tried again every
+  10 seconds for as long as needed, never dropped with time;
+- after it left, the first read of its parameter that left after it shows
+  what "not applied" looks like (BSB-LAN may answer status 0, or 1 without
+  applying it). While a periodic read still shows that mode, it is written
+  again, once per periodic read (every 30 s by default), 3 times at most;
+  it then stays kept and shown, never dropped with time;
+- only two things lift it: a later Gladys command of the same mode that
+  arrived after it and left without being refused (a status 2, a 401 or a
+  429 do not count), or another mode than the one left after it, read
+  twice in a row after it left (someone changed it at the boiler). A value
+  read before it never counts;
+- it belongs to its adapter (MAC address) and address: never written to
+  another adapter. After a restart, a kept one leaves first, before any
+  read, when the address is its own; otherwise it waits for the MAC
+  address of the adapter and is held, said in the status, if another one
+  answers;
+- while credentials are refused, it waits for new credentials or the "Test
+  the connection" button;
+- `/data` is never waited for on this path: a slow or stuck disk holds
+  nothing, and a `/data` that cannot be read is never overwritten (read
+  again later; a kept stop it holds is dropped if a command of its mode was
+  made since). The status says how many are waiting, not yet seen applied,
+  or held for another adapter.
 
 They are refused only when they cannot leave: no adapter configured, a PPS
 bus, another adapter read at the address (another MAC address), BSB-LAN
