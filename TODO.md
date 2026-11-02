@@ -314,3 +314,8 @@ up to date at the end of every milestone.
   `<base>/external-integrations/<selector>` and chowns it to 1000:1000 best effort
   (`ensureDataFolder`, since 4.84.2). Root-owned folder on XDECO's host: waiting for his Gladys
   version, `ls -ln` of the folder and the Gladys log line "Unable to prepare the data folder".
+- Review r1 (xhigh, REFUSED, 1 I + 7 m) fixed in round 2: I1 `PROMOTED` (8770 typed as an extra keeps
+  `param-8770` fed, read once, status note); m1 save tried at start + note for an unreadable state file;
+  m2 uid advice only for EACCES/EPERM; m3 MQTT hint only on a timeout with `sent`; m4 tests for the three
+  branches; m5 `room2Until` (8770 "---" read again every 10 min); m6 8770 is a `probe` (8740 alone is
+  averaged); m7 release `minor` (0.3.0), `hc2-temperature-room` in the frozen ids of CLAUDE.md.

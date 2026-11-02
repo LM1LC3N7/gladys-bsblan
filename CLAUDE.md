@@ -15,7 +15,7 @@ of a BSB-LAN adapter (local, plain http, optional passkey and basic auth)
 and shows it as one Gladys device (heating circuits 1 and 2, hot water,
 boiler, extra read-only parameters); the modes and setpoints can be changed
 behind an off-by-default option, the hot water capped, Protection and hot
-water Off never held back. Never tested with a real adapter, not affiliated with
+water Off never held back. Tested on one real installation (0.2.0), not affiliated with
 the BSB-LAN project nor the manufacturers.
 
 ## Commands
@@ -71,7 +71,8 @@ scripts/cover.mjs            cover.png generator
   `hc2-reduced-target`, `hc2-flow-setpoint`, `hc2-temperature-flow`,
   `dhw-mode-select`, `dhw-status`, `dhw-reduced-target`, `boiler-status`,
   `temperature-boiler`, `burner-stage-1`, `burner-fault-s3`,
-  `last-fault-date`, `last-fault-code`, and `param-<id>` (extra parameters). A republished device never
+  `last-fault-date`, `last-fault-code`; since 0.3.0 `hc2-temperature-room`;
+  and `param-<id>` (extra parameters). A republished device never
   loses a feature (`keepCreatedFeatures`).
 - Manifest keys (`address`, `passkey`, `username`, `password`,
   `allow_commands`, `dhw_max_temperature`, `poll_interval`,

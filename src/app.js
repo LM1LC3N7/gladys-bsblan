@@ -61,6 +61,7 @@ import {
   DHW_SELECTABLE,
   HC2_REST,
   MODES,
+  PROMOTED,
   MODE_CODES,
   P,
   accessOf,
@@ -208,8 +209,13 @@ function numberOf(value) {
   return undefined;
 }
 
-/** A command error, with the hint about a slow adapter when BSB-LAN did not answer in time. */
-const slowOr = (text, err) => (err?.code === CODES.TIMEOUT ? slowHinted(text) : text);
+/**
+ * A command error, with the hint about a slow adapter when BSB-LAN did not
+ * answer in time on an open connection (never on a connection that did not
+ * open: an adapter unplugged is not a slow one).
+ */
+const slowOr = (text, err) =>
+  err?.code === CODES.TIMEOUT && err.sent === true ? slowHinted(text) : text;
 
 const chunks = (list, size) => {
   const out = [];
@@ -319,6 +325,8 @@ export class BsbLanApp {
       values: undefined,
       /** Heating circuit 2: true, false (its mode 1000 missing), undefined before a read. */
       hc2: undefined,
+      /** 8770 without a valid value: not read again before this time (TIMINGS.room2Recheck). */
+      room2Until: undefined,
       /** The MAC of the last /JI (a kept stop is written only to its own adapter). */
       lastMac: undefined,
       timer: undefined,
@@ -341,7 +349,12 @@ export class BsbLanApp {
       return;
     }
     this.memoryLoaded = true;
-    await this.reloadMemory();
+    if (await this.reloadMemory()) {
+      // A save to try /data at once (what was read, merged: nothing lost), so
+      // that a /data not writable is said from the start, not at the first
+      // pause or protective command. Never awaited past TIMINGS.dataWait.
+      void this.saveMemory();
+    }
   }
 
   /**
@@ -360,8 +373,9 @@ export class BsbLanApp {
     if (raw === 'late') {
       if (!this.memoryUnreadable) {
         this.logger.warn('The state in /data could not be read: kept as it is, read again later');
+        this.memoryUnreadable = true;
+        this.refreshStatus();
       }
-      this.memoryUnreadable = true;
       return false;
     }
     const read = normalizeMemory(raw, this.now());
@@ -379,7 +393,10 @@ export class BsbLanApp {
         ),
       ],
     };
-    this.memoryUnreadable = false;
+    if (this.memoryUnreadable) {
+      this.memoryUnreadable = false;
+      this.refreshStatus();
+    }
     if (this.memory.stops.length > 0) {
       this.armStopCheck(0);
     }
@@ -733,8 +750,10 @@ export class BsbLanApp {
     }
     const ids = [...POLL[info.bus]];
     if (info.bus === 'bsb' && adapter.hc2 !== false) {
-      // Circuit 2: its other parameters while its mode (1000) is not known missing.
-      ids.push(...HC2_REST);
+      // Circuit 2: its other parameters while its mode (1000) is not known
+      // missing; its room temperature (8770) without a valid value only every
+      // TIMINGS.room2Recheck (no room sensor on circuit 2, the usual case).
+      ids.push(...HC2_REST.filter((id) => id !== P.ROOM2 || !(adapter.room2Until > this.now())));
     }
     if (info.bus === 'bsb' && !adapter.model) {
       ids.push(P.IDENTIFICATION);
@@ -742,6 +761,11 @@ export class BsbLanApp {
     // The read-only parameters typed in the configuration, last.
     const extras = this.config.extraParams.filter((id) => !ids.includes(id));
     ids.push(...extras);
+    // A parameter built in since 0.3.0 and still typed as an extra one: read
+    // once, and its `param-<id>` feature (created in 0.2.0) keeps its value.
+    const extraIds = this.config.extraParams.filter(
+      (id) => extras.includes(id) || PROMOTED.includes(id),
+    );
     // A few parameters per request: the Gate frees between them, so a
     // command never waits for a whole poll.
     const merged = {};
@@ -779,8 +803,12 @@ export class BsbLanApp {
         }
       }
     }
-    const values = decode(info.bus, merged, extras);
+    const values = decode(info.bus, merged, extraIds);
     adapter.hc2 = info.bus === 'bsb' ? values.mode2 !== undefined : false;
+    if (readAt.has(P.ROOM2) && values.mode2 !== undefined) {
+      adapter.room2Until =
+        values.room2 === undefined ? this.now() + TIMINGS.room2Recheck : undefined;
+    }
     this.rememberExtras(info.mac, values.extra);
     adapter.model ??= identificationOf(merged);
     adapter.info = info;
@@ -1074,6 +1102,7 @@ export class BsbLanApp {
       ...(unconfirmed > 0 ? [T.notes.stopUnconfirmed(unconfirmed)] : []),
       ...(held > 0 ? [T.notes.stopOtherAdapter(held)] : []),
       ...(this.saveFailing !== undefined ? [T.notes.dataNotSaved(this.saveFailing)] : []),
+      ...(this.memoryUnreadable ? [T.notes.dataUnreadable] : []),
     ];
     await this.setStatus(connected, notes.length > 0 ? join2(message, join(notes)) : message);
   }
@@ -1127,6 +1156,10 @@ export class BsbLanApp {
     const created = this.ourDevices();
     if (created.length > 0 && !created.some((entry) => entry.mac === adapter.mac)) {
       notes.push(T.notes.otherAdapter);
+    }
+    const promoted = this.config.extraParams.filter((id) => PROMOTED.includes(id));
+    if (promoted.length > 0) {
+      notes.push(T.notes.promoted(promoted));
     }
     if (this.config.extraIgnored.length > 0) {
       notes.push(T.notes.extraIgnored(this.config.extraIgnored));

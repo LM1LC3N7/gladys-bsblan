@@ -5,7 +5,10 @@ Brötje, Baxi, MHG, Atlantic, Thision…) dans Gladys par l'adaptateur
 **BSB-LAN**, relié au bus BSB, LPB ou PPS du régulateur : sans cloud, sans
 compte, directement sur votre réseau.
 
-> **Module jamais testé avec un vrai adaptateur.**
+> **Testé sur une vraie installation** (version 0.2.0 : régulateur Siemens,
+> deux circuits de chauffage, BSB-LAN) : une quinzaine de commandes sur les
+> deux circuits, modes, consignes et commandes de protection, toutes
+> confirmées.
 > Sans lien avec le projet BSB-LAN ni avec les fabricants. Il lit l'API JSON
 > de BSB-LAN comme la bibliothèque python-bsblan (utilisée par Home
 > Assistant).
@@ -29,38 +32,38 @@ Un appareil « Chauffage (BSB-LAN) » par adaptateur, reconnu par son adresse
 MAC (il reste le même si l'adresse IP change). Chaque fonctionnalité
 n'apparaît que si le régulateur en donne la valeur :
 
-| Fonctionnalité                         | Paramètre | Contenu                                              |
-| -------------------------------------- | --------- | ---------------------------------------------------- |
-| Mode de chauffage                      | 700       | Liste (commande), voir plus bas                      |
-| Mode de chauffage (lu)                 | 700       | Texte : le mode réel, y compris un mode inconnu      |
-| État du circuit de chauffage           | 8000      | Texte du régulateur (« Chauffage confort »…)         |
-| Consigne confort                       | 710       | Thermostat, circuit 1, en °C (commande)              |
-| Consigne réduite                       | 712       | Thermostat, circuit 1, en °C (commande)              |
-| Température de la pièce                | 8740      | En °C                                                |
-| Consigne de départ                     | 8744      | En °C, circuit 1                                     |
-| Température de départ                  | 8743      | En °C, circuit 1                                     |
-| Mode de chauffage (circuit 2)          | 1000      | Liste (commande), si le régulateur a un circuit 2    |
-| Mode de chauffage, lu (circuit 2)      | 1000      | Texte                                                |
-| État du circuit de chauffage 2         | 8001      | Texte du régulateur                                  |
-| Consigne confort (circuit 2)           | 1010      | Thermostat, en °C (commande)                         |
-| Consigne réduite (circuit 2)           | 1012      | Thermostat, en °C (commande)                         |
-| Température de la pièce (circuit 2)    | 8770      | En °C, si le circuit a une sonde d'ambiance          |
-| Consigne / température de départ (c.2) | 8774/8773 | En °C                                                |
-| Température extérieure                 | 8700      | En °C                                                |
-| Mode de l'eau chaude (commande)        | 1600      | Liste : marche, éco, arrêt                           |
-| Mode de l'eau chaude                   | 1600      | Texte : arrêt, marche, éco                           |
-| État de l'eau chaude                   | 8003      | Texte du régulateur                                  |
-| Consigne d'eau chaude                  | 1610      | Chauffe-eau, en °C (commande, plafonnée)             |
-| Consigne réduite de l'eau chaude       | 1612      | Chauffe-eau, en °C (commande, plafonnée)             |
-| Température de l'eau chaude            | 8830      | En °C                                                |
-| Pompe d'eau chaude en marche           | 8820      | 0 ou 1                                               |
-| État de la chaudière                   | 8005      | Texte du régulateur                                  |
-| Température de la chaudière            | 8310      | En °C                                                |
-| Signal 1re allure du brûleur           | 7881      | 0 ou 1 (lecture seule)                               |
-| Entrée défaut brûleur S3               | 7870      | 0 ou 1 (lecture seule)                               |
-| Dernier défaut : date / code           | 6800/6801 | Textes du régulateur                                 |
-| Énergie apportée (kWh)                 | 3113      | En kWh, simple valeur (voir plus bas)                |
-| BSB <numéro> <nom>                     | au choix  | Paramètres supplémentaires, lecture seule (plus bas) |
+| Fonctionnalité                         | Paramètre | Contenu                                               |
+| -------------------------------------- | --------- | ----------------------------------------------------- |
+| Mode de chauffage                      | 700       | Liste (commande), voir plus bas                       |
+| Mode de chauffage (lu)                 | 700       | Texte : le mode réel, y compris un mode inconnu       |
+| État du circuit de chauffage           | 8000      | Texte du régulateur (« Chauffage confort »…)          |
+| Consigne confort                       | 710       | Thermostat, circuit 1, en °C (commande)               |
+| Consigne réduite                       | 712       | Thermostat, circuit 1, en °C (commande)               |
+| Température de la pièce                | 8740      | En °C                                                 |
+| Consigne de départ                     | 8744      | En °C, circuit 1                                      |
+| Température de départ                  | 8743      | En °C, circuit 1                                      |
+| Mode de chauffage (circuit 2)          | 1000      | Liste (commande), si le régulateur a un circuit 2     |
+| Mode de chauffage, lu (circuit 2)      | 1000      | Texte                                                 |
+| État du circuit de chauffage 2         | 8001      | Texte du régulateur                                   |
+| Consigne confort (circuit 2)           | 1010      | Thermostat, en °C (commande)                          |
+| Consigne réduite (circuit 2)           | 1012      | Thermostat, en °C (commande)                          |
+| Température de la pièce (circuit 2)    | 8770      | En °C (sonde), si le circuit 2 a une sonde d'ambiance |
+| Consigne / température de départ (c.2) | 8774/8773 | En °C                                                 |
+| Température extérieure                 | 8700      | En °C                                                 |
+| Mode de l'eau chaude (commande)        | 1600      | Liste : marche, éco, arrêt                            |
+| Mode de l'eau chaude                   | 1600      | Texte : arrêt, marche, éco                            |
+| État de l'eau chaude                   | 8003      | Texte du régulateur                                   |
+| Consigne d'eau chaude                  | 1610      | Chauffe-eau, en °C (commande, plafonnée)              |
+| Consigne réduite de l'eau chaude       | 1612      | Chauffe-eau, en °C (commande, plafonnée)              |
+| Température de l'eau chaude            | 8830      | En °C                                                 |
+| Pompe d'eau chaude en marche           | 8820      | 0 ou 1                                                |
+| État de la chaudière                   | 8005      | Texte du régulateur                                   |
+| Température de la chaudière            | 8310      | En °C                                                 |
+| Signal 1re allure du brûleur           | 7881      | 0 ou 1 (lecture seule)                                |
+| Entrée défaut brûleur S3               | 7870      | 0 ou 1 (lecture seule)                                |
+| Dernier défaut : date / code           | 6800/6801 | Textes du régulateur                                  |
+| Énergie apportée (kWh)                 | 3113      | En kWh, simple valeur (voir plus bas)                 |
+| BSB <numéro> <nom>                     | au choix  | Paramètres supplémentaires, lecture seule (plus bas)  |
 
 **Circuit 2** : il n'apparaît que si le régulateur donne une valeur pour son
 mode (1000) ; absent ou « --- », l'intégration ne lit plus que ce seul
@@ -99,9 +102,16 @@ Lire des catégories entières (`/JK=ALL`) n'est pas proposé : des centaines de
 paramètres, une réponse trop grosse, une lecture du bus de plusieurs minutes
 et autant de fonctionnalités dans Gladys.
 
-La température extérieure, celle de l'eau et les consignes en lecture seule
-sont des « sondes » : elles ne comptent pas comme température de la pièce
-dans Gladys. Lecture toutes les 30 secondes par défaut (de 10 s à 10 min,
+La température extérieure, celle de l'eau, la température de la pièce du
+circuit 2 (8770) et les consignes en lecture seule sont des « sondes » :
+elles ne comptent pas comme température de la pièce dans Gladys (les
+circuits 1 et 2 chauffent souvent deux zones ; Gladys en ferait la
+moyenne). Seule 8740 (circuit 1) compte. 8770 sans valeur (« --- » : pas
+de sonde d'ambiance sur le circuit 2, le cas courant) n'est relu que toutes
+les 10 minutes, pas à chaque lecture. Si vous aviez saisi 8770 dans
+« Paramètres supplémentaires » en version 0.2.0, sa fonctionnalité
+« BSB 8770 » garde sa valeur ; le statut propose d'ajouter la nouvelle
+depuis Découverte puis de retirer 8770 de la liste. Lecture toutes les 30 secondes par défaut (de 10 s à 10 min,
 réglable), quelques paramètres par requête (l'adaptateur interroge le bus un
 paramètre après l'autre).
 
@@ -311,7 +321,8 @@ deux écritures (sinon « encore en cours »).
   délais des commandes et les 3 s entre deux écritures ne changent pas
   (ils protègent le chauffage).
 - **« The state could not be saved in /data (EACCES) »** dans les journaux,
-  et « /data n'est pas accessible en écriture » dans le statut : le dossier
+  et « /data n'est pas accessible en écriture » dans le statut (dit dès le
+  démarrage : un enregistrement est tenté au lancement) : le dossier
   de données que Gladys donne à l'intégration n'est pas inscriptible par
   son utilisateur (`node`, uid 1000). Gladys le crée et le donne à l'uid
   1000 en créant le conteneur ; quand cela échoue (journal Gladys « Unable

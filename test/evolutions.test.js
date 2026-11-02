@@ -184,22 +184,37 @@ test('0.3.0: room temperature of circuit 2 (8770) only when valid and circuit 2 
   params[8770] = inactive('Room temp 2 actual value');
   const bsb = fakeBsbLan({ params });
   const { gladys, advance } = await setup(t, { bsb, config: READ_ONLY });
+  const reads8770 = () => bsb.requests.filter((r) => r.ids.includes('8770')).length;
   // "---" (no room unit on circuit 2): no feature, circuit 2 still there.
   assert.ok(roles(gladys).includes('hc2-setpoint'));
   assert.ok(!roles(gladys).includes('hc2-temperature-room'));
+  assert.equal(reads8770(), 1);
+  // r1 m5: not read again at every poll, only every 10 min (one /JQ less).
+  const count = bsb.requests.length;
+  await advance(31 * SECOND);
+  assert.ok(
+    bsb.requests.slice(count).some((r) => r.ids.includes('8773')),
+    'a poll ran',
+  );
+  assert.equal(reads8770(), 1);
   // Out of its plausible range: never a value.
   bsb.params[8770] = { ...fullParams()[8770], value: '250.0' };
-  await advance(31 * SECOND);
+  await advance(11 * MINUTE);
+  assert.equal(reads8770(), 2, 'read again after 10 min (polls every 30 s)');
   assert.ok(!roles(gladys).includes('hc2-temperature-room'));
   assert.equal(last(gladys, 'hc2-temperature-room'), undefined);
   // In °F: never shown as °C.
   bsb.params[8770] = { ...fullParams()[8770], unit: '&deg;F', value: '69.0' };
-  await advance(31 * SECOND);
+  await advance(11 * MINUTE);
+  assert.equal(reads8770(), 3);
   assert.equal(last(gladys, 'hc2-temperature-room'), undefined);
-  // A valid value: the feature, as `temperature-room` for circuit 1.
+  // A valid value: the feature, then read at every poll.
   bsb.params[8770] = fullParams()[8770];
-  await advance(31 * SECOND);
+  await advance(11 * MINUTE);
   assert.ok(roles(gladys).includes('hc2-temperature-room'));
+  const valid = reads8770();
+  await advance(62 * SECOND);
+  assert.equal(reads8770(), valid + 2, 'valid: at every poll');
   // Offered in Discovery; its states once the device is saved again there.
   await gladys.fake.deviceCreated(gladys.fake.discoveredDevices[0]);
   await advance(31 * SECOND);
@@ -207,17 +222,46 @@ test('0.3.0: room temperature of circuit 2 (8770) only when valid and circuit 2 
   const all = gladys.fake.discoveredDevices[0].features;
   const room2 = all.find((f) => f.external_id === feature('hc2-temperature-room'));
   const room1 = all.find((f) => f.external_id === feature('temperature-room'));
-  const shape = ({ category, type, unit, min, max, read_only }) => ({
-    category,
-    type,
-    unit,
-    min,
-    max,
-    read_only,
-  });
-  assert.deepEqual(shape(room2), shape(room1));
+  // r1 m6: a probe, never averaged with 8740 as the room temperature; 8740 unchanged.
+  assert.equal(room2.category, 'temperature-sensor');
+  assert.equal(room2.type, 'probe');
+  assert.equal(room2.unit, 'celsius');
   assert.equal(room2.read_only, true);
+  assert.equal(room1.type, 'decimal');
   assert.match(room2.name, /circuit 2/);
+});
+
+test('r1 I1: 8770 typed as an extra parameter in 0.2.0: param-8770 keeps its value, read once', async (t) => {
+  const config = { ...READ_ONLY, extra_parameters: '8770' };
+  // The device as 0.2.0 created it: param-8770, a probe.
+  const old = await (async () => {
+    const bsb = fakeBsbLan({ params: fullParams() });
+    const first = await setup(t, { bsb, config });
+    return first.gladys.fake.devices[0];
+  })();
+  assert.ok(old.features.some((f) => f.external_id === feature('param-8770')));
+  t.mock.timers.reset();
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance } = await setup(t, { bsb, config, created: old });
+  bsb.params[8770] = { ...fullParams()[8770], value: '22.4' };
+  await advance(31 * SECOND);
+  assert.equal(last(gladys, 'param-8770'), 22.4);
+  // Read once per poll, never twice in the same request.
+  assert.ok(bsb.requests.every((r) => r.ids.filter((id) => id === '8770').length <= 1));
+  // The status says it is built in now (Discovery), nothing "ignored".
+  assert.match(
+    message(gladys).fr,
+    /8770 est maintenant lu comme « Température de la pièce \(circuit 2\) »/,
+  );
+  assert.doesNotMatch(message(gladys).fr, /ignorés/);
+  // Circuit 2 without a room sensor ("---"): 8770 still read for its extra feature.
+  bsb.params[8770] = inactive('Room temp 2 actual value');
+  await advance(31 * SECOND);
+  bsb.params[8770] = { ...fullParams()[8770], value: '21.0' };
+  const count = bsb.requests.length;
+  await advance(31 * SECOND);
+  assert.ok(bsb.requests.slice(count).some((r) => r.ids.includes('8770')));
+  assert.equal(last(gladys, 'param-8770'), 21);
 });
 
 test('0.3.0: without circuit 2 (1000 "---"), 8770 is never read nor shown, even when it answers', async (t) => {

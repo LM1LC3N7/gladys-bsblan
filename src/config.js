@@ -6,7 +6,7 @@
 // -----------------------------------------------------------------------------
 
 import { DEFAULT_PORT, DHW_CAP, EXTRA_LIMIT, POLL_INTERVAL } from './constants.js';
-import { HC2_REST, POLL } from './params.js';
+import { HC2_REST, POLL, PROMOTED } from './params.js';
 
 /** Defaults, mirrored by the manifest (checked by test/manifest.test.js). */
 export const DEFAULT_CONFIG = {
@@ -19,7 +19,9 @@ export const DEFAULT_CONFIG = {
 };
 
 /** The parameters the integration reads anyway: never a second feature. */
-const BUILT_IN = new Set([...POLL.bsb, ...HC2_REST, ...POLL.pps, '6224']);
+const BUILT_IN = new Set(
+  [...POLL.bsb, ...HC2_REST, ...POLL.pps, '6224'].filter((id) => !PROMOTED.includes(id)),
+);
 
 /**
  * The read-only parameters typed in the configuration: numbers of 1 to 5

@@ -861,3 +861,38 @@ test('t/11458: 5.0.111 without any parameter access: unknown, commands refused, 
   );
   assert.deepEqual(bsb.writes(), []);
 });
+
+// --- Review bsblan-xdeco r1 (m3, m4): the hint about a slow adapter ---------------
+
+test('r1 m3: a connection that did not open in time (unplugged adapter) gets no MQTT hint', async (t) => {
+  let unplugged = false;
+  const bsb = fakeBsbLan({
+    behave: (request) =>
+      unplugged && request.endpoint !== '/JS' ? { error: 'timeout', sent: false } : undefined,
+  });
+  const { command } = await setup(t, { bsb, config: ALLOWED });
+  unplugged = true;
+  const ack = await command('mode', 'reduced', { wait: 4_900 });
+  assert.match(ack.error, /\(timeout\)/);
+  assert.doesNotMatch(ack.error, /MQTT|lentement/);
+  assert.deepEqual(bsb.writes(), []);
+});
+
+test('r1 m4: the read back after an accepted write times out: "not read back: timeout" with the hint', async (t) => {
+  let written = false;
+  const bsb = fakeBsbLan({
+    behave: (request) => {
+      if (request.endpoint === '/JS') {
+        written = true;
+        return undefined;
+      }
+      return written && request.endpoint === '/JQ' ? 'timeout' : undefined;
+    },
+  });
+  const { command } = await setup(t, { bsb, config: ALLOWED });
+  const ack = await command('mode', 'reduced', { wait: 4_900 });
+  assert.ok(ack, 'answered within 5 s');
+  assert.match(ack.error, /sans confirmation \((not read back: timeout|not read back in time)\)/);
+  assert.match(ack.error, /BSB-LAN répond lentement : publie-t-il aussi en MQTT/);
+  assert.deepEqual(bsb.writes(), [['700', '2']]);
+});

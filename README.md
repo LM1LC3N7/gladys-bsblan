@@ -6,7 +6,9 @@ Atlantic…) through the **BSB-LAN** adapter and its local JSON API:
 heating circuits 1 and 2, hot water, boiler, extra read-only parameters, and
 commands (modes, comfort and reduced setpoints, hot water mode and setpoints
 capped at 65 °C by default) behind an off-by-default option, Protection and
-hot water Off never held back. **Never tested with a real adapter. Not
+hot water Off never held back. **Tested on a real installation** (0.2.0:
+Siemens controller, two heating circuits, about fifteen commands on both
+circuits, protective commands confirmed). **Not
 affiliated with the BSB-LAN project nor the manufacturers.** BSB-LAN speaks
 plain http: keep it on a trusted network.
 
@@ -36,8 +38,11 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   (UTF-8, else Latin-1), only own keys of the parameters asked, every value
   checked against a plausible range.
 - **Room temperature of circuit 2** (8770, 0.3.0): read with the rest of
-  circuit 2, shown only when valid (not "---", in °C, −60 to 120 °C), as
-  8740 for circuit 1. Circuit 3 (8800) is not handled.
+  circuit 2, shown only when valid (not "---", in °C, −60 to 120 °C), a
+  `probe` (8740 stays the only room temperature Gladys averages). Without
+  a valid value it is read again only every 10 min. Typed as an extra
+  parameter in 0.2.0: still read, its `param-8770` keeps its value.
+  Circuit 3 (8800) is not handled.
 - **Failures**: unreachable 30 s, 1, 2, 5 min, never under the interval;
   HTTP 401/403 a stop persisted in `/data`, next tries 15 min, 1 h, 6 h,
   24 h; HTTP 429/5xx a pause of 1 min to 6 h persisted in `/data`, applied

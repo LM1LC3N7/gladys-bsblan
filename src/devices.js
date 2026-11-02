@@ -127,7 +127,6 @@ export function definitionOf(role) {
     case F.DHW_SETPOINT_REDUCED:
       return probe(0, 95);
     case F.TEMP_ROOM:
-    case F.HC2_TEMP_ROOM:
       return sensor({
         category: C.TEMPERATURE_SENSOR,
         type: T.SENSOR.DECIMAL,
@@ -135,10 +134,14 @@ export function definitionOf(role) {
         min: -60,
         max: 120,
       });
+    // The room temperature of circuit 2 is a probe, not `decimal`: Gladys
+    // averages the decimal temperature sensors of a room, and circuits 1
+    // and 2 often heat two different zones.
     case F.TEMP_OUTDOOR:
     case F.TEMP_DHW:
     case F.TEMP_FLOW:
     case F.HC2_TEMP_FLOW:
+    case F.HC2_TEMP_ROOM:
       return probe();
     case F.FLOW_SETPOINT:
     case F.HC2_FLOW_SETPOINT:

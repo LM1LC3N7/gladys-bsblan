@@ -5,7 +5,9 @@ Baxi, MHG, Atlantic, Thision…) in Gladys through the **BSB-LAN** adapter,
 wired to the BSB, LPB or PPS bus of the controller: no cloud, no account,
 straight on your network.
 
-> **Never tested with a real adapter.**
+> **Tested on a real installation** (version 0.2.0: Siemens controller, two
+> heating circuits, BSB-LAN): about fifteen commands on both circuits, modes,
+> setpoints and protective commands, all confirmed.
 > Not affiliated with the BSB-LAN project nor the manufacturers. It reads the
 > JSON API of BSB-LAN as the python-bsblan library (used by Home Assistant)
 > does.
@@ -43,7 +45,7 @@ once the controller gives its value:
 | Heating circuit 2 status           | 8001      | Text of the controller                           |
 | Comfort setpoint (circuit 2)       | 1010      | Thermostat, in °C (command)                      |
 | Reduced setpoint (circuit 2)       | 1012      | Thermostat, in °C (command)                      |
-| Room temperature (circuit 2)       | 8770      | In °C, when the circuit has a room sensor        |
+| Room temperature (circuit 2)       | 8770      | In °C (probe), when circuit 2 has a room sensor  |
 | Flow setpoint / temperature (c. 2) | 8774/8773 | In °C                                            |
 | Outside temperature                | 8700      | In °C                                            |
 | Hot water mode (command)           | 1600      | A list: on, eco, off                             |
@@ -94,8 +96,15 @@ Reading whole categories (`/JK=ALL`) is not offered: hundreds of
 parameters, an answer too large, a bus read of several minutes, and as many
 features in Gladys.
 
-The outside and water temperatures and the read-only setpoints are
-"probes": they do not count as the room temperature in Gladys. Read every 30
+The outside and water temperatures, the room temperature of circuit 2
+(8770) and the read-only setpoints are "probes": they do not count as the
+room temperature in Gladys (circuits 1 and 2 often heat two different
+zones; Gladys would average them). Only 8740 (circuit 1) does.
+8770 without a value ("---": no room sensor on circuit 2, the usual case)
+is read again only every 10 minutes, not at every read. If you typed 8770
+in "Extra parameters" with version 0.2.0, its "BSB 8770" feature keeps its
+value; the status suggests adding the new feature from Discovery and
+removing 8770 from the list. Read every 30
 seconds by default (10 s to 10 min, configurable), a few parameters per
 request (the adapter queries the bus one parameter after the other).
 
@@ -289,7 +298,8 @@ between two writes (otherwise "still running").
   deadlines of the commands and the 3 s between two writes stay as they
   are (they protect the heating).
 - **"The state could not be saved in /data (EACCES)"** in the logs, and
-  "/data is not writable" in the status: the data folder Gladys gives the
+  "/data is not writable" in the status (said from the start: a save is
+  tried when the integration starts): the data folder Gladys gives the
   integration is not writable by its user (`node`, uid 1000). Gladys
   creates it and gives it to uid 1000 when it creates the container; when
   that fails (Gladys log "Unable to prepare the data folder of integration

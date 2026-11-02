@@ -245,10 +245,21 @@ export const T = {
         `${n} protective command(s) kept for another adapter (another MAC address): never written to this one.`,
         `${n} commande(s) de protection gardée(s) pour un autre adaptateur (autre adresse MAC) : jamais écrite(s) sur celui-ci.`,
       ),
-    dataNotSaved: (code) =>
+    dataNotSaved: (code) => {
+      const owner = code === 'EACCES' || code === 'EPERM';
+      return both(
+        `/data is not writable (${code}): commands and protective commands work, but a restart forgets a pause after an HTTP 429/5xx, the wait after refused credentials and the protective commands not yet seen applied.${owner ? ' Give the data folder of the integration to uid 1000 on the host (see the documentation).' : ' Check the disk of Gladys (full, read only?).'}`,
+        `/data n'est pas accessible en écriture (${code}) : les commandes et les commandes de protection fonctionnent, mais un redémarrage oublie une pause après un HTTP 429/5xx, l'attente après des identifiants refusés et les commandes de protection pas encore vues appliquées.${owner ? " Donnez le dossier de données de l'intégration à l'uid 1000 sur l'hôte (voir la documentation)." : ' Vérifiez le disque de Gladys (plein, en lecture seule ?).'}`,
+      );
+    },
+    dataUnreadable: both(
+      'The state file in /data could not be read: kept as it is (never overwritten), read again at each poll; until then a pause, the wait after refused credentials and the protective commands it holds are not known.',
+      "Le fichier d'état de /data n'a pas pu être lu : laissé tel quel (jamais écrasé), relu à chaque lecture ; d'ici là, une pause, l'attente après des identifiants refusés et les commandes de protection qu'il garde ne sont pas connues.",
+    ),
+    promoted: (list) =>
       both(
-        `/data is not writable (${code}): commands and protective commands work, but a restart forgets a pause after an HTTP 429/5xx, the wait after refused credentials and the protective commands not yet seen applied. Give the data folder of the integration to uid 1000 on the host (see the documentation).`,
-        `/data n'est pas accessible en écriture (${code}) : les commandes et les commandes de protection fonctionnent, mais un redémarrage oublie une pause après un HTTP 429/5xx, l'attente après des identifiants refusés et les commandes de protection pas encore vues appliquées. Donnez le dossier de données de l'intégration à l'uid 1000 sur l'hôte (voir la documentation).`,
+        `Extra parameter ${list.join(', ')} is now read as "Room temperature (circuit 2)": its feature keeps its value; you may add the new one from the Discovery tab, then remove ${list.join(', ')} from the extra parameters.`,
+        `Le paramètre supplémentaire ${list.join(', ')} est maintenant lu comme « Température de la pièce (circuit 2) » : sa fonctionnalité garde sa valeur ; vous pouvez ajouter la nouvelle depuis l'onglet Découverte, puis retirer ${list.join(', ')} des paramètres supplémentaires.`,
       ),
     extraIgnored: (list) =>
       both(

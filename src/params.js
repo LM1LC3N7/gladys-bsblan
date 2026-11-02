@@ -118,6 +118,13 @@ export const HC2_REST = [
 ];
 
 /**
+ * Read as an extra parameter in 0.2.0 (the only way then), built in since
+ * 0.3.0: still accepted in `extra_parameters`, so that a `param-<id>`
+ * feature created in 0.2.0 keeps getting its value.
+ */
+export const PROMOTED = [P.ROOM2];
+
+/**
  * Heating circuit 1 operating mode (700), python-bsblan `Validation.HVAC_MODES`
  * and the BSB-LAN texts: 0 protection (frost protection only), 1 automatic
  * (time program), 2 reduced, 3 comfort. All four can be selected.

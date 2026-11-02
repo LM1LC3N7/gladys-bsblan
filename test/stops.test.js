@@ -897,3 +897,82 @@ test('r4 m2: Protection clicked during a restart: "kept, sent as soon as it answ
   await advance(40 * SECOND);
   assert.equal(app.memory.stops.length, 0);
 });
+
+// --- Review bsblan-xdeco r1 (m1, m2, m4) ---------------------------------------------
+
+test('r1 m1: /data not writable is said from the start (a save tried at start), without a click', async (t) => {
+  const store = deniedStore();
+  const { gladys } = await setup(t, { store });
+  assert.ok(store.attempts >= 1, 'a save tried at start');
+  assert.match(message(gladys).fr, /\/data n'est pas accessible en écriture \(EACCES\)/);
+  assert.match(message(gladys).fr, /uid 1000/);
+});
+
+test('r1 m1: the save at start keeps what /data holds (a kept stop, a pause), never empties it', async (t) => {
+  const kept = {
+    pausedUntil: 0,
+    auth: { failures: 0, until: 0 },
+    stops: [{ mac: MAC_ID, role: 'dhw-mode-select', sent: 0, diff: 0 }],
+  };
+  const bsb = fakeBsbLan({ params: fullParams() });
+  bsb.behave = ignoring;
+  const store = memoryStore(kept);
+  await setup(t, { store, bsb });
+  assert.equal(store.data.stops.length, 1);
+  assert.equal(store.data.stops[0].role, 'dhw-mode-select');
+});
+
+test('r1 m1: a state file there but unreadable is said in the status until it can be read', async (t) => {
+  const store = memoryStore(null, { unreadable: true });
+  const { gladys, advance } = await setup(t, { store });
+  assert.match(message(gladys).fr, /Le fichier d'état de \/data n'a pas pu être lu/);
+  assert.equal(store.attempts, 0, 'never overwritten');
+  store.unreadable = false;
+  await advance(31 * SECOND);
+  assert.doesNotMatch(message(gladys).fr, /\/data/);
+});
+
+test('r1 m2: another failure than EACCES/EPERM (disk full) never advises a chown', async (t) => {
+  const store = memoryStore();
+  store.save = async () => {
+    throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
+  };
+  const { gladys } = await setup(t, { store });
+  assert.match(message(gladys).fr, /\(ENOSPC\)/);
+  assert.match(message(gladys).fr, /plein, en lecture seule/);
+  assert.doesNotMatch(message(gladys).fr + message(gladys).en, /uid 1000/);
+});
+
+test('r1 m4: the status follows a failed then a working save at once, without waiting for a read', async (t) => {
+  const store = memoryStore();
+  const { gladys, app } = await setup(t, { store });
+  assert.doesNotMatch(message(gladys).fr, /\/data/);
+  store.save = deniedStore().save.bind(store);
+  await app.saveMemory();
+  await settle();
+  assert.match(message(gladys).fr, /\(EACCES\)/);
+  store.save = memoryStore().save.bind(store);
+  await app.saveMemory();
+  await settle();
+  assert.doesNotMatch(message(gladys).fr, /\/data/);
+});
+
+test('r1 m4: a restart between the start of a Protection and its departure: answered "kept", still kept', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  let app;
+  let restartOnce = true;
+  const request = (options) => {
+    const body = options?.body ? JSON.parse(options.body) : undefined;
+    if (options.path.endsWith('/JS') && body?.Parameter === '700' && restartOnce) {
+      // The generation moves on right before the write leaves (beforeSend).
+      restartOnce = false;
+      app.generation += 1;
+    }
+    return bsb.request(options);
+  };
+  const ctx = await setup(t, { bsb, request });
+  app = ctx.app;
+  const ack = await ctx.command('mode', 'protection', { wait: SECOND });
+  assert.match(ack.error, /gardée pour son propre adaptateur/);
+  assert.equal(app.memory.stops.length, 1, 'still kept');
+});

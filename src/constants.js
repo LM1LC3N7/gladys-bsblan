@@ -164,4 +164,10 @@ export const TIMINGS = {
   configRetry: [5 * SECOND, 15 * SECOND, 30 * SECOND, MINUTE, 5 * MINUTE],
   /** /data is never waited for longer than this (a frozen disk holds nothing). */
   dataWait: 2 * SECOND,
+  /**
+   * 8770 (room temperature of circuit 2) without a valid value ("---": no room
+   * sensor on circuit 2, the usual case): read again only this often, not at
+   * every poll (one /JQ less on a busy adapter).
+   */
+  room2Recheck: 10 * MINUTE,
 };

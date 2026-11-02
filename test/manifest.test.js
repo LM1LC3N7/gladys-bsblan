@@ -62,15 +62,15 @@ test('the store basics', () => {
     assert.match(docs, /not\s+affiliated\s+with|sans\s+lien\s+avec/i);
     assert.match(
       docs,
-      /never\s+tested\s+with\s+a\s+real\s+adapter|jamais\s+testé\s+avec\s+un\s+vrai\s+adaptateur/i,
-      'say it was never tested',
+      /tested\s+on\s+a\s+real\s+installation|testé\s+sur\s+une\s+vraie\s+installation/i,
+      'say how it was tested',
     );
     assert.match(docs, /65\s*°C/, 'document the hot water ceiling');
     assert.match(docs, /python-bsblan/, 'credit the reference');
   }
-  assert.match(manifest.config_schema[0].description.fr, /Jamais testé avec un vrai adaptateur/);
-  assert.match(manifest.config_schema[0].description.en, /Never tested with a real adapter/);
-  assert.match(read('README.md'), /never tested with a real adapter/i);
+  assert.match(manifest.config_schema[0].description.fr, /Testé sur une vraie installation/);
+  assert.match(manifest.config_schema[0].description.en, /Tested on a real installation/);
+  assert.match(read('README.md'), /tested on a real installation/i);
 });
 
 test('every text is in English and French', () => {
