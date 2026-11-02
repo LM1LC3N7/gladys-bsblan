@@ -5,7 +5,7 @@
 // temperature, energy brought in, and the PPS room-unit parameters (15000+);
 // the flow, status and boiler numbers from the BSB-LAN parameter names
 // (localization/LANG_EN.h, LANG_DE_LEGACY.h: 8001, 8003, 8005, 8310, 8743,
-// 8744, 8773, 8774, 7870, 7881, 6800, 6801). Their type is not fixed by
+// 8744, 8770, 8773, 8774, 7870, 7881, 6800, 6801). Their type is not fixed by
 // BSB-LAN (the parameter tables are made per controller): each value is
 // checked as it comes.
 //
@@ -39,6 +39,8 @@ export const P = {
   STATUS2: '8001',
   FLOW_SETPOINT2: '8774',
   FLOW2: '8773',
+  /** 0.3.0: the room temperature of circuit 2 (8740 for circuit 1). */
+  ROOM2: '8770',
   // Sensors.
   OUTDOOR: '8700',
   ENERGY: '3113',
@@ -112,6 +114,7 @@ export const HC2_REST = [
   P.STATUS2,
   P.FLOW_SETPOINT2,
   P.FLOW2,
+  P.ROOM2,
 ];
 
 /**
@@ -377,6 +380,7 @@ export function decode(bus, answer, extras = []) {
     setTemperature('heating2Max', P.COMFORT_MAX2, 0, 95);
     setTemperature('flowSetpoint2', P.FLOW_SETPOINT2, 0, 120);
     setTemperature('flow2', P.FLOW2, -60, 120);
+    setTemperature('room2', P.ROOM2, -60, 120);
     const status2 = enumerated(entryOf(answer, P.STATUS2));
     if (status2) {
       values.status2 = status2;

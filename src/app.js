@@ -54,7 +54,7 @@ import {
   parseFeatureId,
   reportedRoles,
 } from './devices.js';
-import { ERRORS, STATE_TEXTS, T, age, join, word } from './i18n.js';
+import { ERRORS, STATE_TEXTS, T, age, join, slowHinted, word } from './i18n.js';
 import {
   DHW_MODES,
   DHW_MODE_CODES,
@@ -208,6 +208,9 @@ function numberOf(value) {
   return undefined;
 }
 
+/** A command error, with the hint about a slow adapter when BSB-LAN did not answer in time. */
+const slowOr = (text, err) => (err?.code === CODES.TIMEOUT ? slowHinted(text) : text);
+
 const chunks = (list, size) => {
   const out = [];
   for (let i = 0; i < list.length; i += size) {
@@ -241,6 +244,8 @@ export class BsbLanApp {
     this.memory = normalizeMemory(null, now());
     this.memoryLoaded = false;
     this.saveWarned = false;
+    /** The code of the last failed save of /data (EACCES…), undefined once saved. */
+    this.saveFailing = undefined;
     /** mac -> the roles its values were seen to report (a feature never disappears). */
     this.seen = new Map();
     this.generation = 0;
@@ -394,10 +399,30 @@ export class BsbLanApp {
         return;
       }
       await this.store.save(serializeMemory(this.memory));
+      if (this.saveFailing !== undefined) {
+        this.saveFailing = undefined;
+        this.logger.info('The state is saved in /data again');
+        this.refreshStatus();
+      }
     })().catch((err) => {
+      // A code only (EACCES, EROFS…): never a path nor a content.
+      const code = /^[A-Z][A-Z0-9_]{1,20}$/.test(String(err?.code)) ? err.code : 'error';
+      const first = this.saveFailing === undefined;
+      this.saveFailing = code;
       if (!this.saveWarned) {
         this.saveWarned = true;
-        this.logger.warn(`The state could not be saved in /data: ${err?.code ?? 'error'}`);
+        this.logger.warn(
+          `The state could not be saved in /data (${code}): ` +
+            (code === 'EACCES' || code === 'EPERM'
+              ? 'the data folder of the integration is not writable by its user (node, uid 1000). '
+              : '') +
+            'Commands and protective commands still work, but a restart forgets a pause after ' +
+            'an HTTP 429/5xx, the wait after refused credentials and the protective commands ' +
+            'not yet seen applied. See the documentation.',
+        );
+      }
+      if (first) {
+        this.refreshStatus();
       }
     });
     return this.bounded(attempt);
@@ -1025,6 +1050,13 @@ export class BsbLanApp {
     }
   }
 
+  /** The status again, outside a poll (a save of /data failed or works again). */
+  refreshStatus() {
+    if (this.adapter && !this.stopped) {
+      this.updateStatus().catch(() => {});
+    }
+  }
+
   /** The connection status of the configuration screen. */
   async updateStatus() {
     const [connected, message] = this.status();
@@ -1041,6 +1073,7 @@ export class BsbLanApp {
       ...(waiting > 0 ? [T.notes.stopWaiting(waiting)] : []),
       ...(unconfirmed > 0 ? [T.notes.stopUnconfirmed(unconfirmed)] : []),
       ...(held > 0 ? [T.notes.stopOtherAdapter(held)] : []),
+      ...(this.saveFailing !== undefined ? [T.notes.dataNotSaved(this.saveFailing)] : []),
     ];
     await this.setStatus(connected, notes.length > 0 ? join2(message, join(notes)) : message);
   }
@@ -1398,7 +1431,7 @@ export class BsbLanApp {
         throw this.refusal(ERRORS.tooSlow);
       }
       this.block(err);
-      throw this.refusal(ERRORS.unknownState(reasonOf(err)));
+      throw this.refusal(slowOr(ERRORS.unknownState(reasonOf(err)), err));
     }
     if (generation !== this.generation || this.adapter !== adapter || !this.live) {
       throw this.refusal(ERRORS.unknownDevice);
@@ -1481,7 +1514,9 @@ export class BsbLanApp {
       this.logger.warn(`BSB-LAN ${role}: ${wanted.value} failed (${reason})`);
       if (!err.sent) {
         // Nothing reached the adapter.
-        throw this.refusal(err.code === CODES.LATE ? ERRORS.tooSlow : ERRORS.notSent(reason));
+        throw this.refusal(
+          err.code === CODES.LATE ? ERRORS.tooSlow : slowOr(ERRORS.notSent(reason), err),
+        );
       }
       if (err.code === CODES.HTTP && err.status >= 400 && err.status <= 499) {
         // Refused before the controller saw it (credentials, passkey, busy): not applied.
@@ -1495,7 +1530,7 @@ export class BsbLanApp {
       this.guard(key, plan);
       left();
       this.followUp();
-      throw this.refusal(ERRORS.sentUnconfirmed(reason));
+      throw this.refusal(slowOr(ERRORS.sentUnconfirmed(reason), err));
     }
     const outcome = writeOutcome(written, wanted.id);
     if (outcome === 'refused') {
@@ -1514,7 +1549,7 @@ export class BsbLanApp {
     }
     // Read back, in what is left of the answer budget.
     if (answerBy - this.now() < TIMINGS.commandMinRead) {
-      throw this.refusal(ERRORS.sentUnconfirmed('not read back in time'));
+      throw this.refusal(slowHinted(ERRORS.sentUnconfirmed('not read back in time')));
     }
     let seen;
     try {
@@ -1539,7 +1574,7 @@ export class BsbLanApp {
         throw err;
       }
       this.block(err);
-      throw this.refusal(ERRORS.sentUnconfirmed(`not read back: ${reasonOf(err)}`));
+      throw this.refusal(slowOr(ERRORS.sentUnconfirmed(`not read back: ${reasonOf(err)}`), err));
     }
     if (seen === plan.expected) {
       return;
@@ -1604,7 +1639,7 @@ export class BsbLanApp {
           protective: true,
           beforeSend: () => {
             if (generation !== this.generation || this.adapter !== adapter) {
-              throw this.refusal(ERRORS.unknownDevice);
+              throw this.refusal(this.stopOf(mac, role) ? ERRORS.stopHeld : ERRORS.unknownDevice);
             }
             // Lifted while queued (a newer command left, another mode read
             // twice, or seen applied): not written; never to another adapter.
@@ -1629,7 +1664,9 @@ export class BsbLanApp {
         throw this.refusal(ERRORS.tooSlow);
       }
       if (err.code === CODES.CLOSED) {
-        throw this.refusal(ERRORS.unknownDevice);
+        // A restart (new configuration, reconnection) closed this client: the
+        // stop stays kept and leaves first on the next one (r4 m2).
+        throw this.refusal(this.stopOf(mac, role) ? ERRORS.stopHeld : ERRORS.unknownDevice);
       }
       throw err;
     });

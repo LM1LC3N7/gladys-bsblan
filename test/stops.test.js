@@ -42,11 +42,12 @@ async function setup(
     store = memoryStore(),
     request = bsb.request,
     connect = true,
+    log = logger,
   } = {},
 ) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   const gladys = createFakeGladys({ config });
-  const app = new BsbLanApp({ gladys, logger, request, store, now: () => Date.now() });
+  const app = new BsbLanApp({ gladys, logger: log, request, store, now: () => Date.now() });
   registerHandlers(gladys, app);
   const apps = [app];
   t.after(() => apps.forEach((a) => a.stop()));
@@ -165,7 +166,7 @@ test('another mode set at the boiler, read twice, lifts the stop; never written 
   await command('mode', 'protection', { wait: SECOND });
   // Reduced, set at the boiler right after.
   bsb.params[700] = { ...bsb.params[700], value: '2', desc: 'Reduced' };
-  await advance(5 * SECOND); // the first read
+  await advance(6 * SECOND); // the first read (follow-up at 5 s, a poll takes 1 s)
   assert.equal(store.data.stops.length, 1, 'one read is not enough');
   assert.equal(store.data.stops[0].diff, 1);
   await advance(16 * SECOND); // the second read
@@ -566,7 +567,7 @@ test('B2: two different modes in a row are not "another mode read twice"', async
   await advance(35 * SECOND);
   bsb.behave = failing;
   await command('mode', 'protection', { wait: SECOND });
-  await advance(5 * SECOND); // follow-up at 5 s: Automatic, the reference
+  await advance(6 * SECOND); // follow-up at 5 s (a poll takes 1 s): Automatic, the reference
   assert.equal(app.memory.stops[0].after, 'automatic');
   bsb.params[700] = { ...bsb.params[700], value: '3', desc: 'Comfort' };
   await advance(15 * SECOND); // follow-up at 20 s: Comfort (once)
@@ -712,7 +713,7 @@ test('r2 O6: one read never counts twice (a command read, then the poll that tak
   const f = (role) => d.features.find((x) => x.external_id === feature(role));
   gladys.fake.setValue(d, f('mode'), 'protection');
   await settle();
-  await advance(6 * SECOND);
+  await advance(7 * SECOND);
   assert.equal(app.memory.stops[0].after, 'automatic');
   // Comfort at the unit, 700 read only now. A poll: its second batch is
   // slow; a mode command passes between its batches, reads 700 (Comfort,
@@ -799,4 +800,100 @@ test('r2: an old stop read late from /data never repeats a Protection of this ru
   await advance(45 * SECOND);
   assert.deepEqual(bsb.writes(), [['700', '0']]);
   assert.equal(bsb.params[700].value, '3');
+});
+
+// --- 0.3.0 (XDECO, t/11458 n° 3; review r4 K8, m2) -------------------------------
+
+/** /data mounted but not writable by uid 1000 (the forum report): every save EACCES. */
+function deniedStore() {
+  const store = memoryStore();
+  store.save = async function save() {
+    this.attempts += 1;
+    throw Object.assign(new Error("EACCES: permission denied, open '/data/x'"), {
+      code: 'EACCES',
+    });
+  };
+  return store;
+}
+
+test('/data not writable (EACCES): protective commands and commands go, the status says what a restart forgets', async (t) => {
+  const store = deniedStore();
+  const logs = [];
+  const keep = (...a) => logs.push(a.join(' '));
+  const log = { debug: quiet, info: keep, warn: keep, error: keep };
+  const { bsb, command, advance, gladys, app } = await setup(t, {
+    store,
+    log,
+    config: { address: HOST, allow_commands: true },
+  });
+  bsb.behave = ignoring;
+  // Never refused nor lost because of /data: it leaves, and stays kept in memory.
+  assert.match((await command('mode', 'protection')).error, /encore la précédente/);
+  assert.ok(store.attempts > 0);
+  assert.deepEqual(writes(bsb), [['700', '0']]);
+  assert.equal(app.memory.stops.length, 1);
+  assert.match(message(gladys).fr, /\/data n'est pas accessible en écriture \(EACCES\)/);
+  assert.match(message(gladys).fr, /redémarrage oublie .* commandes de protection pas encore vues/);
+  assert.match(message(gladys).en, /uid 1000/);
+  const warnings = logs.filter((l) => l.includes('could not be saved in /data'));
+  assert.equal(warnings.length, 1, 'said once');
+  assert.match(warnings[0], /\(EACCES\).*uid 1000.*protective commands/);
+  assert.doesNotMatch(warnings[0], /permission denied|\/data\/x/, 'a code only');
+  // Written again by the periodic read, then lifted once seen applied.
+  bsb.behave = undefined;
+  await advance(60 * SECOND);
+  assert.deepEqual(writes(bsb), [
+    ['700', '0'],
+    ['700', '0'],
+  ]);
+  assert.equal(app.memory.stops.length, 0);
+  // Hot water Off and an ordinary command too.
+  assert.equal((await command('dhw-mode-select', 'off')).success, true);
+  await advance(5 * SECOND);
+  assert.equal((await command('mode', 'automatic')).success, true);
+  // /data writable again (folder fixed on the host): the note goes at the next save.
+  store.save = memoryStore().save;
+  await command('mode', 'protection');
+  await advance(SECOND);
+  assert.doesNotMatch(message(gladys).fr, /\/data/);
+  assert.ok(logs.some((l) => l.includes('saved in /data again')));
+});
+
+test('r4 K8: a restart is not "stopped" during its waits: a getConfig() retry then is kept', async (t) => {
+  const { app, until, advance } = await setup(t);
+  void app.tick({ force: true });
+  const restarting = app.start(READ_ONLY);
+  assert.equal(app.stopped, false, 'back to false before the first wait');
+  let tries = 0;
+  await app.connectedWith(async () => {
+    tries += 1;
+    if (tries === 1) {
+      throw new Error('timeout');
+    }
+    return READ_ONLY;
+  });
+  assert.notEqual(app.configTimer, undefined, 'the retry is armed, not dropped');
+  await until(restarting);
+  await advance(10 * SECOND);
+  assert.equal(tries, 2);
+  assert.ok(app.live);
+});
+
+test('r4 m2: Protection clicked during a restart: "kept, sent as soon as it answers", then sent', async (t) => {
+  const { app, bsb, until, advance } = await setup(t);
+  void app.tick({ force: true });
+  const restarting = app.start(READ_ONLY);
+  const click = app.setValue(undefined, { external_id: feature('mode') }, 'protection');
+  const error = await click.then(
+    () => undefined,
+    (err) => err,
+  );
+  assert.ok(error, 'the closed client cannot take it now');
+  assert.match(error.message, /gardée pour son propre adaptateur/);
+  assert.doesNotMatch(error.message, /lu actuellement/);
+  await until(restarting);
+  await advance(5 * SECOND);
+  assert.deepEqual(writes(bsb), [['700', '0']]);
+  await advance(40 * SECOND);
+  assert.equal(app.memory.stops.length, 0);
 });

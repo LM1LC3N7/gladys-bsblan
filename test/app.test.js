@@ -135,7 +135,8 @@ test('one poll: /JI, /JV, then the parameters four at a time, POST, one request 
       // Circuit 2 not known missing yet: read whole once.
       '/JQ:1000,1010,1012,1014',
       '/JQ:1016,8001,8774,8773',
-      '/JQ:6224',
+      // 8770 (0.3.0) shares its batch with the identification, read once.
+      '/JQ:8770,6224',
     ],
   );
   assert.ok(bsb.requests.every((r) => r.options.method === 'POST' && r.options.port === 80));
@@ -426,6 +427,8 @@ test('a write without answer: "sent, without confirmation", reads 5 s and 20 s l
   const ack = await command('mode', 'reduced', { wait: 4_900 });
   assert.ok(ack, 'answered within 5 s');
   assert.match(ack.error, /Commande envoyée, sans confirmation \(timeout\)/);
+  // 0.3.0 (XDECO): a timeout points at a busy adapter (MQTT, a short interval).
+  assert.match(ack.error, /BSB-LAN répond lentement : publie-t-il aussi en MQTT/);
   assert.deepEqual(bsb.writes(), [['700', '2']]);
   await advance(5 * SECOND);
   const first = bsb.requests.filter((r) => r.endpoint === '/JI').length;
@@ -477,7 +480,9 @@ test('a write that never left is "not sent"; a 5xx after it left is unconfirmed'
     },
   });
   const { command, advance } = await setup(t, { bsb, config: ALLOWED });
-  assert.match((await command('mode', 'reduced')).error, /n'a pas pu être joint \(unreachable\)/);
+  const unreachable = (await command('mode', 'reduced')).error;
+  assert.match(unreachable, /n'a pas pu être joint \(unreachable\)/);
+  assert.doesNotMatch(unreachable, /MQTT/, 'only a timeout gets the hint');
   mode = 'five';
   await advance(5 * SECOND);
   assert.match((await command('mode', 'reduced')).error, /sans confirmation \(HTTP 500\)/);
@@ -496,6 +501,7 @@ test('a slow fresh read is refused unsent within 5 s', async (t) => {
   const ack = await command('mode', 'reduced', { wait: 4_900 });
   assert.ok(ack, 'answered within 5 s');
   assert.match(ack.error, /trop lentement|relue juste avant/);
+  assert.match(ack.error, /MQTT/, 'the hint about a busy adapter');
   assert.deepEqual(bsb.writes(), []);
 });
 

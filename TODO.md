@@ -300,8 +300,17 @@ up to date at the end of every milestone.
 
 ## Next patch
 
-- r4 K8: no test pins `stopped` going back to false before the waits of `start()`. Protections are safe (the
-  send at the head of `start()` catches up), but a `getConfig()` retry or the test button during a restart would
-  be lost. Optional test.
-- r4 m2: a Protection clicked during a restart gets "not the adapter currently read … not sent" although the stop
-  is kept and leaves right after (a `CLOSED` client maps to `unknownDevice`). Use the `stopHeld` text instead.
+- (done in 0.3.0) r4 K8: test pins `stopped` back to false before the waits of `start()` (a `getConfig()`
+  retry during a restart is kept); r4 m2: a Protection clicked during a restart answers `stopHeld`.
+
+## 0.3.0 (XDECO, t/11458 n° 3, 2026-11-01)
+
+- 8770 (room temperature, circuit 2) in `HC2_REST`, feature `hc2-temperature-room`; 8800 (circuit 3) not
+  read: circuit 3 is not handled at all. One more /JQ per periodic poll on a controller with circuit 2
+  (33 parameters, 9 batches of 4).
+- MQTT on BSB-LAN: commands ran out of time; with MQTT off and 30 s, all passed. Docs + a hint on the
+  timeout messages (`slowHinted`), deadlines unchanged.
+- `/data` EACCES: not our image (USER node, /data 1000:1000 in 0.2.0 as published). Gladys bind-mounts
+  `<base>/external-integrations/<selector>` and chowns it to 1000:1000 best effort
+  (`ensureDataFolder`, since 4.84.2). Root-owned folder on XDECO's host: waiting for his Gladys
+  version, `ls -ln` of the folder and the Gladys log line "Unable to prepare the data folder".

@@ -67,6 +67,10 @@ export const FEATURE_NAMES = {
     'Flow temperature (circuit 2)',
     'Température de départ (circuit 2)',
   ),
+  [FEATURES.HC2_TEMP_ROOM]: both(
+    'Room temperature (circuit 2)',
+    'Température de la pièce (circuit 2)',
+  ),
   [FEATURES.DHW_MODE_SELECT]: both('Hot water mode (command)', "Mode de l'eau chaude (commande)"),
   [FEATURES.DHW_STATUS]: both('Hot water status', "État de l'eau chaude"),
   [FEATURES.DHW_REDUCED_TARGET]: both(
@@ -241,6 +245,11 @@ export const T = {
         `${n} protective command(s) kept for another adapter (another MAC address): never written to this one.`,
         `${n} commande(s) de protection gardée(s) pour un autre adaptateur (autre adresse MAC) : jamais écrite(s) sur celui-ci.`,
       ),
+    dataNotSaved: (code) =>
+      both(
+        `/data is not writable (${code}): commands and protective commands work, but a restart forgets a pause after an HTTP 429/5xx, the wait after refused credentials and the protective commands not yet seen applied. Give the data folder of the integration to uid 1000 on the host (see the documentation).`,
+        `/data n'est pas accessible en écriture (${code}) : les commandes et les commandes de protection fonctionnent, mais un redémarrage oublie une pause après un HTTP 429/5xx, l'attente après des identifiants refusés et les commandes de protection pas encore vues appliquées. Donnez le dossier de données de l'intégration à l'uid 1000 sur l'hôte (voir la documentation).`,
+      ),
     extraIgnored: (list) =>
       both(
         `Extra parameters ignored (not a number, already read, repeated or over 10): ${list.join(', ')}.`,
@@ -255,6 +264,17 @@ export const T = {
     cooldown: both('Tested less than 10 s ago.', 'Testé il y a moins de 10 s.'),
   },
 };
+
+/**
+ * Appended to a command error when BSB-LAN did not answer in time: the
+ * adapter serves one request at a time, and a busy one (MQTT publishing, a
+ * short read interval, many parameters) runs the commands out of time.
+ */
+const SLOW_HINT = both(
+  ' BSB-LAN answers slowly: does it also publish in MQTT, or is the read interval too short? (see the documentation)',
+  " BSB-LAN répond lentement : publie-t-il aussi en MQTT, ou l'intervalle de lecture est-il trop court ? (voir la documentation)",
+);
+export const slowHinted = (text) => both(`${text.en}${SLOW_HINT.en}`, `${text.fr}${SLOW_HINT.fr}`);
 
 /** The errors a command answers to Gladys. */
 export const ERRORS = {
@@ -334,8 +354,8 @@ export const ERRORS = {
     'Une autre commande vers BSB-LAN est encore en cours : non envoyée.',
   ),
   tooSlow: both(
-    'BSB-LAN answered too slowly to send the command in time: not sent.',
-    'BSB-LAN a répondu trop lentement pour envoyer la commande à temps : non envoyée.',
+    'BSB-LAN answered too slowly to send the command in time: not sent. Does it also publish in MQTT, or is the read interval too short? (see the documentation)',
+    "BSB-LAN a répondu trop lentement pour envoyer la commande à temps : non envoyée. Publie-t-il aussi en MQTT, ou l'intervalle de lecture est-il trop court ? (voir la documentation)",
   ),
   unknownState: (reason) =>
     both(

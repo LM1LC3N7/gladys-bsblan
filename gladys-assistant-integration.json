@@ -156,8 +156,8 @@
         "fr": "Intervalle de rafraîchissement (s)"
       },
       "description": {
-        "en": "How often BSB-LAN is read, in seconds.",
-        "fr": "Fréquence de lecture de BSB-LAN, en secondes."
+        "en": "How often BSB-LAN is read, in seconds. The adapter serves one request at a time: if it also publishes in MQTT (for Home Assistant, for example), turn that off or lighten it, and keep 30 s or more here, or the commands may run out of time.",
+        "fr": "Fréquence de lecture de BSB-LAN, en secondes. L'adaptateur traite une requête à la fois : s'il publie aussi en MQTT (pour Home Assistant, par exemple), désactivez-le ou allégez-le, et gardez 30 s ou plus ici, sinon les commandes peuvent dépasser leurs délais."
       },
       "required": false,
       "default": 30,

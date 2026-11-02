@@ -42,6 +42,8 @@ export const FEATURES = {
   HC2_REDUCED_TARGET: 'hc2-reduced-target',
   HC2_FLOW_SETPOINT: 'hc2-flow-setpoint',
   HC2_TEMP_FLOW: 'hc2-temperature-flow',
+  /** 0.3.0: 8770, as `temperature-room` (8740) for circuit 1. */
+  HC2_TEMP_ROOM: 'hc2-temperature-room',
   // Hot water: the mode as a command, its status, 1612 writable.
   DHW_MODE_SELECT: 'dhw-mode-select',
   DHW_STATUS: 'dhw-status',

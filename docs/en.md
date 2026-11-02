@@ -43,6 +43,7 @@ once the controller gives its value:
 | Heating circuit 2 status           | 8001      | Text of the controller                           |
 | Comfort setpoint (circuit 2)       | 1010      | Thermostat, in °C (command)                      |
 | Reduced setpoint (circuit 2)       | 1012      | Thermostat, in °C (command)                      |
+| Room temperature (circuit 2)       | 8770      | In °C, when the circuit has a room sensor        |
 | Flow setpoint / temperature (c. 2) | 8774/8773 | In °C                                            |
 | Outside temperature                | 8700      | In °C                                            |
 | Hot water mode (command)           | 1600      | A list: on, eco, off                             |
@@ -277,6 +278,33 @@ between two writes (otherwise "still running").
   credentials or pressing "Test the connection" tries at once.
 - **BSB-LAN busy or failing** (HTTP 429 or 5xx): a pause of 1 minute to 6
   hours (from `Retry-After`), kept in `/data`, for reads and commands alike.
+- **Commands failing when BSB-LAN also publishes in MQTT**: the adapter
+  serves one request at a time. If BSB-LAN publishes in MQTT to a broker
+  (for Home Assistant, for example), that load can make the commands of
+  Gladys run out of time ("answered too slowly", "sent, without
+  confirmation (timeout)"; these messages then remind it). Turn MQTT off in
+  BSB-LAN, or lighten it (a longer interval, fewer parameters), and keep a
+  reasonable refresh interval in Gladys (30 s or more). Seen on a real
+  installation: with MQTT off and 30 s, every command went through. The
+  deadlines of the commands and the 3 s between two writes stay as they
+  are (they protect the heating).
+- **"The state could not be saved in /data (EACCES)"** in the logs, and
+  "/data is not writable" in the status: the data folder Gladys gives the
+  integration is not writable by its user (`node`, uid 1000). Gladys
+  creates it and gives it to uid 1000 when it creates the container; when
+  that fails (Gladys log "Unable to prepare the data folder of integration
+  …", a disk mounted without owners such as NFS or CIFS, Docker in
+  rootless or user-namespace mode, a Gladys data folder mounted elsewhere
+  than the folder of its database), the folder stays owned by root. The
+  integration keeps working, commands and Protection / hot water Off
+  included: they are never refused nor dropped because of `/data`. Only a
+  restart forgets what `/data` would keep: a pause after HTTP 429/5xx, the
+  wait after refused credentials, and the protective commands not yet seen
+  applied (they are not sent again after the restart). To fix it, on the
+  Gladys host: `sudo chown 1000:1000
+/var/lib/gladysassistant/external-integrations/ext-lm1lc3n7-gladys-bsblan`
+  (the folder of your Gladys data if it is elsewhere), then restart the
+  integration.
 - **Wrong passkey, or Gladys's IP not among the trusted addresses**: from
   the firmware source, BSB-LAN then closes the connection without any
   answer (never a 404). The integration cannot tell it from an unreachable
@@ -287,7 +315,8 @@ between two writes (otherwise "still running").
 - **Controller in °F**: its temperatures are not shown (the features are in
   °C).
 - **One adapter** per integration, **heating circuits 1 and 2**.
-- Not yet: cooling, time programs, commands on a PPS bus, circuit 3.
+- Not yet: cooling, time programs, commands on a PPS bus, circuit 3 (its
+  room temperature, 8800, included).
 - The logs never hold the passkey, the user name, the password nor the
   answers of BSB-LAN; `/data` keeps only the pause, the stop on refused
   credentials and the kept protective commands, never a secret.

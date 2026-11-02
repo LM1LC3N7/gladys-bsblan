@@ -35,6 +35,9 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   with both fields. Answers are capped at 64 KB, read with `JSON.parse`
   (UTF-8, else Latin-1), only own keys of the parameters asked, every value
   checked against a plausible range.
+- **Room temperature of circuit 2** (8770, 0.3.0): read with the rest of
+  circuit 2, shown only when valid (not "---", in °C, −60 to 120 °C), as
+  8740 for circuit 1. Circuit 3 (8800) is not handled.
 - **Failures**: unreachable 30 s, 1, 2, 5 min, never under the interval;
   HTTP 401/403 a stop persisted in `/data`, next tries 15 min, 1 h, 6 h,
   24 h; HTTP 429/5xx a pause of 1 min to 6 h persisted in `/data`, applied
@@ -63,6 +66,25 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   (its `readwrite` access, else `buswritable` of `/JI`, never believed before 5.1.19).
 - **Guards**: after a write, until a read shows it (or 90 s), the same
   setting is sent again even when the read shows the wanted value.
+
+## Known setups
+
+- **BSB-LAN publishing in MQTT** (for Home Assistant, for example): the
+  adapter serves one request at a time, and that load can make the commands
+  of Gladys run out of time. Turn MQTT off in BSB-LAN, or lighten it (a
+  longer interval, fewer parameters), and keep a reasonable refresh interval
+  in Gladys (30 s or more). A command that timed out says so ("does it also
+  publish in MQTT, or is the read interval too short?"); the deadlines and
+  the 3 s between two writes do not change.
+- **`/data` not writable** (`EACCES` at start): the image runs as `node`
+  (uid 1000) and its own `/data` belongs to it, but Gladys bind-mounts
+  `<Gladys data>/external-integrations/<selector>` over it and gives that
+  folder to uid 1000 only when it can (best effort). When it cannot, the
+  integration still works (commands and protective commands are never
+  refused nor dropped for it), says it in the status, and only a restart
+  forgets the pause, the credentials wait and the protective commands not
+  yet seen applied. Fix on the host: `chown 1000:1000` that folder. See
+  the user docs.
 
 ## Credits
 

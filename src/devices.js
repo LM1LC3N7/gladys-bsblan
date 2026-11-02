@@ -127,6 +127,7 @@ export function definitionOf(role) {
     case F.DHW_SETPOINT_REDUCED:
       return probe(0, 95);
     case F.TEMP_ROOM:
+    case F.HC2_TEMP_ROOM:
       return sensor({
         category: C.TEMPERATURE_SENSOR,
         type: T.SENSOR.DECIMAL,
@@ -198,6 +199,7 @@ const NUMBERS = {
   [F.HC2_REDUCED_TARGET]: (v) => v.heating2SetpointReduced,
   [F.HC2_FLOW_SETPOINT]: (v) => v.flowSetpoint2,
   [F.HC2_TEMP_FLOW]: (v) => v.flow2,
+  [F.HC2_TEMP_ROOM]: (v) => v.room2,
   [F.DHW_REDUCED_TARGET]: (v) => v.dhwSetpointReduced,
   [F.TEMP_BOILER]: (v) => v.boiler,
   [F.BURNER_STAGE_1]: (v) => v.burnerStage1,
@@ -224,6 +226,7 @@ export const ROLES = [
   F.HC2_STATUS,
   F.HC2_SETPOINT,
   F.HC2_REDUCED_TARGET,
+  F.HC2_TEMP_ROOM,
   F.HC2_FLOW_SETPOINT,
   F.HC2_TEMP_FLOW,
   F.TEMP_OUTDOOR,

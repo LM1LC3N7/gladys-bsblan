@@ -103,6 +103,7 @@ test('circuit 2, flows, hot water status and the boiler: read only features, val
     'hc2-reduced-target',
     'hc2-flow-setpoint',
     'hc2-temperature-flow',
+    'hc2-temperature-room',
     'flow-setpoint',
     'temperature-flow',
     'dhw-status',
@@ -121,6 +122,7 @@ test('circuit 2, flows, hot water status and the boiler: read only features, val
   assert.equal(last(gladys, 'hc2-status'), 'Heating mode reduced');
   assert.equal(last(gladys, 'hc2-flow-setpoint'), 35);
   assert.equal(last(gladys, 'hc2-temperature-flow'), 34.1);
+  assert.equal(last(gladys, 'hc2-temperature-room'), 20.6);
   assert.equal(last(gladys, 'flow-setpoint'), 45);
   assert.equal(last(gladys, 'temperature-flow'), 43.2);
   assert.equal(last(gladys, 'dhw-status'), 'Charging');
@@ -175,6 +177,59 @@ test('circuit 2 absent ("---"): no feature, then its mode only, one parameter pe
   await advance(31 * SECOND);
   await advance(31 * SECOND);
   assert.ok(roles(gladys).includes('hc2-setpoint'));
+});
+
+test('0.3.0: room temperature of circuit 2 (8770) only when valid and circuit 2 is there', async (t) => {
+  const params = fullParams();
+  params[8770] = inactive('Room temp 2 actual value');
+  const bsb = fakeBsbLan({ params });
+  const { gladys, advance } = await setup(t, { bsb, config: READ_ONLY });
+  // "---" (no room unit on circuit 2): no feature, circuit 2 still there.
+  assert.ok(roles(gladys).includes('hc2-setpoint'));
+  assert.ok(!roles(gladys).includes('hc2-temperature-room'));
+  // Out of its plausible range: never a value.
+  bsb.params[8770] = { ...fullParams()[8770], value: '250.0' };
+  await advance(31 * SECOND);
+  assert.ok(!roles(gladys).includes('hc2-temperature-room'));
+  assert.equal(last(gladys, 'hc2-temperature-room'), undefined);
+  // In °F: never shown as °C.
+  bsb.params[8770] = { ...fullParams()[8770], unit: '&deg;F', value: '69.0' };
+  await advance(31 * SECOND);
+  assert.equal(last(gladys, 'hc2-temperature-room'), undefined);
+  // A valid value: the feature, as `temperature-room` for circuit 1.
+  bsb.params[8770] = fullParams()[8770];
+  await advance(31 * SECOND);
+  assert.ok(roles(gladys).includes('hc2-temperature-room'));
+  // Offered in Discovery; its states once the device is saved again there.
+  await gladys.fake.deviceCreated(gladys.fake.discoveredDevices[0]);
+  await advance(31 * SECOND);
+  assert.equal(last(gladys, 'hc2-temperature-room'), 20.6);
+  const all = gladys.fake.discoveredDevices[0].features;
+  const room2 = all.find((f) => f.external_id === feature('hc2-temperature-room'));
+  const room1 = all.find((f) => f.external_id === feature('temperature-room'));
+  const shape = ({ category, type, unit, min, max, read_only }) => ({
+    category,
+    type,
+    unit,
+    min,
+    max,
+    read_only,
+  });
+  assert.deepEqual(shape(room2), shape(room1));
+  assert.equal(room2.read_only, true);
+  assert.match(room2.name, /circuit 2/);
+});
+
+test('0.3.0: without circuit 2 (1000 "---"), 8770 is never read nor shown, even when it answers', async (t) => {
+  const params = fullParams();
+  params[1000] = inactive('Operating mode HC2');
+  const bsb = fakeBsbLan({ params });
+  const { gladys, advance } = await setup(t, { bsb, config: READ_ONLY });
+  const count = bsb.requests.length;
+  await advance(31 * SECOND);
+  assert.ok(!bsb.requests.slice(count).some((r) => r.ids.includes('8770')));
+  assert.ok(!roles(gladys).includes('hc2-temperature-room'));
+  assert.equal(last(gladys, 'hc2-temperature-room'), undefined);
 });
 
 test('reduced setpoints: within the protection one and the max, never above the comfort one', async (t) => {

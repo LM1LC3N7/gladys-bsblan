@@ -10,6 +10,32 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Added
+
+- Room temperature of heating circuit 2 (8770), read with the rest of
+  circuit 2 and shown only when valid ("---", °F or out of range: no
+  value), as 8740 for circuit 1 (forum t/11458). Circuit 3 (8800) is not
+  handled, as the rest of circuit 3.
+
+### Changed
+
+- A command that ran out of time (BSB-LAN answering too slowly, a timeout)
+  now asks whether BSB-LAN also publishes in MQTT or the read interval is
+  too short; the docs and the refresh interval say why (the adapter serves
+  one request at a time). The deadlines and the 3 s between two writes are
+  unchanged.
+- `/data` not writable (EACCES): the log line names the cause (the data
+  folder is not writable by uid 1000) and what a restart then forgets, the
+  status says it until a save works again; the docs give the fix on the
+  host. Commands and protective commands were and stay unaffected.
+
+### Fixed
+
+- A Protection or hot water Off clicked during a restart (new
+  configuration) is answered "kept, sent as soon as it answers" instead of
+  "not the adapter read now… not sent": it was kept and left right after
+  (review r4 m2).
+
 ## [0.2.0] - 2026-10-31
 
 ### Added

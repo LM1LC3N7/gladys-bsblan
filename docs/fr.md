@@ -44,6 +44,7 @@ n'apparaît que si le régulateur en donne la valeur :
 | État du circuit de chauffage 2         | 8001      | Texte du régulateur                                  |
 | Consigne confort (circuit 2)           | 1010      | Thermostat, en °C (commande)                         |
 | Consigne réduite (circuit 2)           | 1012      | Thermostat, en °C (commande)                         |
+| Température de la pièce (circuit 2)    | 8770      | En °C, si le circuit a une sonde d'ambiance          |
 | Consigne / température de départ (c.2) | 8774/8773 | En °C                                                |
 | Température extérieure                 | 8700      | En °C                                                |
 | Mode de l'eau chaude (commande)        | 1600      | Liste : marche, éco, arrêt                           |
@@ -298,6 +299,35 @@ deux écritures (sinon « encore en cours »).
 - **BSB-LAN occupé ou en erreur** (HTTP 429 ou 5xx) : pause de 1 minute à
   6 heures (selon `Retry-After`), gardée dans `/data`, pour les lectures
   comme pour les commandes.
+- **Commandes en échec quand BSB-LAN publie aussi en MQTT** : l'adaptateur
+  traite une requête à la fois. Si BSB-LAN publie en MQTT vers un broker
+  (par exemple pour Home Assistant), la charge sur l'adaptateur peut faire
+  échouer les commandes de Gladys (délais dépassés : « répondu trop
+  lentement », « envoyée, sans confirmation (timeout) » ; ces messages le
+  rappellent alors). Désactivez le MQTT sur BSB-LAN, ou allégez-le
+  (intervalle plus long, moins de paramètres), et gardez un intervalle de
+  lecture raisonnable dans Gladys (30 s ou plus). Constaté sur une vraie
+  installation : MQTT désactivé et 30 s, toutes les commandes passent. Les
+  délais des commandes et les 3 s entre deux écritures ne changent pas
+  (ils protègent le chauffage).
+- **« The state could not be saved in /data (EACCES) »** dans les journaux,
+  et « /data n'est pas accessible en écriture » dans le statut : le dossier
+  de données que Gladys donne à l'intégration n'est pas inscriptible par
+  son utilisateur (`node`, uid 1000). Gladys le crée et le donne à l'uid
+  1000 en créant le conteneur ; quand cela échoue (journal Gladys « Unable
+  to prepare the data folder of integration … », disque monté sans
+  propriétaires comme NFS ou CIFS, Docker en mode rootless ou avec
+  user namespaces, dossier de données de Gladys monté ailleurs que le
+  dossier de sa base), le dossier reste à root. L'intégration continue de
+  fonctionner, commandes et Protection / eau chaude à l'arrêt compris :
+  elles ne sont jamais refusées ni perdues à cause de `/data`. Seul un
+  redémarrage oublie ce que `/data` garderait : une pause après un HTTP
+  429/5xx, l'attente après des identifiants refusés et les commandes de
+  protection pas encore vues appliquées (elles ne sont pas renvoyées après
+  le redémarrage). Pour corriger, sur l'hôte de Gladys : `sudo chown
+1000:1000 /var/lib/gladysassistant/external-integrations/ext-lm1lc3n7-gladys-bsblan`
+  (le dossier de vos données Gladys s'il est ailleurs), puis redémarrez
+  l'intégration.
 - **Passkey fausse, ou IP de Gladys absente des adresses de confiance** :
   d'après la source du micrologiciel, BSB-LAN ferme alors la connexion sans
   rien répondre (jamais de 404). L'intégration ne peut pas le distinguer
@@ -310,7 +340,7 @@ deux écritures (sinon « encore en cours »).
   fonctionnalités sont en °C).
 - **Un seul adaptateur** par intégration, **circuits de chauffage 1 et 2**.
 - Pas encore : rafraîchissement, programmes horaires, commandes sur bus PPS,
-  circuit 3.
+  circuit 3 (y compris sa température de pièce, 8800).
 - Les journaux ne contiennent jamais la clé de passe, l'identifiant, le mot
   de passe ni les réponses de BSB-LAN ; `/data` ne garde que la pause,
   l'arrêt sur identifiants refusés et les commandes de protection gardées,

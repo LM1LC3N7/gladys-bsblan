@@ -284,6 +284,7 @@ export function fullParams() {
     8001: choice('Status heating circuit 2', '116', 'Heating mode reduced'),
     8774: temp('Flow temperature setpoint H2', '35.0'),
     8773: temp('Flow temp actual value heat circuit 2', '34.1'),
+    8770: temp('Room temp 2 actual value', '20.6'),
     8003: choice('Status DHW', '92', 'Charging'),
     8005: choice('Status boiler', '25', 'In operation'),
     8310: temp('Boiler temp actual value', '58.4'),
