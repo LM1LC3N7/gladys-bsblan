@@ -288,7 +288,8 @@ unchanged, the card shows the value read again at once (Gladys otherwise
 keeps the value typed). After "sent, without confirmation" (the controller
 may have applied it), nothing older is republished: the reads 5 and 20
 seconds later settle it. In both cases those reads publish the setting
-even when unchanged; never after a confirmed success.
+even when unchanged; if they fail too (adapter unreachable), the first read
+that succeeds does, within 10 minutes; never after a confirmed success.
 
 ## Errors and limits
 

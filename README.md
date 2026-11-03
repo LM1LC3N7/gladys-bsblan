@@ -101,7 +101,8 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   left, cancelled, read back unchanged) publishes the value read again at
   once; "sent, without confirmation" republishes nothing older (the
   follow-up reads settle it). After either, the reads of the next 25 s
-  publish the feature even unchanged; never after a confirmed success.
+  publish the feature even unchanged, and if they all fail, the first
+  read that succeeds (within 10 min); never after a confirmed success.
 
 ## Credits
 

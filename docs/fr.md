@@ -309,8 +309,9 @@ avant de partir, annulée, abandonnée ou relue inchangée, la carte reprend
 tout de suite la valeur lue (sinon Gladys garde la valeur saisie). Après
 « envoyée, sans confirmation » (le régulateur a pu l'appliquer), rien
 d'ancien n'est republié : les relectures de 5 et 20 secondes tranchent.
-Dans les deux cas, ces relectures publient le réglage même inchangé ;
-jamais après un succès confirmé.
+Dans les deux cas, ces relectures publient le réglage même inchangé ; si
+elles échouent aussi (adaptateur injoignable), la première lecture réussie
+le fait, dans les 10 minutes ; jamais après un succès confirmé.
 
 ## Erreurs et limites
 

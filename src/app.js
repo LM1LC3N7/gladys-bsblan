@@ -275,6 +275,8 @@ export class BsbLanApp {
     this.guards = new Map();
     /** Increases at every read of parameters (a poll batch, a command's fresh read). */
     this.readSeq = 0;
+    /** The readSeq of the last read that changed the values in memory (reshow marks). */
+    this.valuesSeq = 0;
     /** id -> { seq, entry }: the last fresh read of a command, per parameter. */
     this.freshReads = new Map();
     /** Increases at every protective command: a command that arrived before never leaves after. */
@@ -840,6 +842,7 @@ export class BsbLanApp {
     adapter.info = info;
     adapter.mac = info.mac;
     adapter.values = values;
+    this.valuesSeq = this.readSeq;
     adapter.online = true;
     adapter.failures = 0;
     adapter.wait = undefined;
@@ -1060,8 +1063,10 @@ export class BsbLanApp {
 
   queueStates(created = this.createdFeatures()) {
     const now = this.now();
-    for (const [id, until] of this.reshow) {
-      if (until <= now) {
+    for (const [id, mark] of this.reshow) {
+      // Over once its window has passed and a read made after the mark has
+      // published the feature (r031-r2 n1), or at the cap.
+      if (mark.cap <= now || (mark.until <= now && mark.read)) {
         this.reshow.delete(id);
       }
     }
@@ -1080,8 +1085,12 @@ export class BsbLanApp {
       });
       for (const { device_feature_external_id: id, ...value } of states) {
         if (created.has(id)) {
-          if (this.reshow.has(id)) {
+          const mark = this.reshow.get(id);
+          if (mark) {
             this.forgetPublished(id);
+            if (online && this.valuesSeq > mark.seq) {
+              mark.read = true;
+            }
           }
           this.publisher.push(id, value);
         }
@@ -1533,10 +1542,18 @@ export class BsbLanApp {
 
   /**
    * After a command: the reads of the next TIMINGS.reshow publish this
-   * feature, equal or not to what was published before (queueStates).
+   * feature, equal or not to what was published before (queueStates); if
+   * none of them succeeds, the first successful read after it does (r031-r2
+   * n1: a write not applied, its read backs failed), within TIMINGS.reshowMax.
    */
   forgetShown(target) {
-    this.reshow.set(this.shownId(target), this.now() + TIMINGS.reshow);
+    const now = this.now();
+    this.reshow.set(this.shownId(target), {
+      until: now + TIMINGS.reshow,
+      cap: now + TIMINGS.reshowMax,
+      seq: this.readSeq,
+      read: false,
+    });
   }
 
   /** Publishes the real value of the feature again, now (the card leaves the value typed). */
@@ -1655,6 +1672,7 @@ export class BsbLanApp {
       }
     }
     const seq = ++this.readSeq;
+    this.valuesSeq = seq;
     for (const id of ids) {
       this.freshReads.set(id, { seq, entry: picked[id], stamp });
     }
@@ -1829,6 +1847,7 @@ export class BsbLanApp {
       const adapter = this.adapter;
       if (seen !== undefined && adapter?.values && adapter.mac === mac) {
         const seq = ++this.readSeq;
+        this.valuesSeq = seq;
         const stamp = departedOf(again);
         this.freshReads.set(wanted.id, { seq, entry, stamp });
         adapter.values[spec.key] =

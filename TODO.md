@@ -334,12 +334,20 @@ up to date at the end of every milestone.
 - A protective click drops every queued command, not only those of its circuit (as it already cancelled
   every command not sent yet since 0.2.0): simpler and on the safe side.
 
-## Next patch (review bsblan-xdeco 0.3.1 r2, dc56a68) — n1 first
+## 0.3.2 (review bsblan-xdeco 0.3.1 r2, dc56a68; SDK 0.16)
 
-- n1: the card can keep the typed value (scenario Q11): a write "sent, not confirmed" that was not
-  applied, then the 5 s and 20 s read-backs fail too; when reads come back the old value equals the
-  last published state and the 25 s republish window is over, so nothing is republished. Keep the
-  republish mark until the first successful read (with a cap).
-- n2: six fixed branches have no test (surviving mutants): 4 of the 5 "sent, not confirmed" paths
-  (`src/app.js:1818`, `1822`, `1847`, `1857`), the republish after an unconfirmed and unapplied
-  write, and `replaced.pending` (`src/app.js:1411`).
+- [x] SDK `^0.16.0` (migration wave, `_lots/migration-sdk-0.16.md`): the device already carries
+      `should_poll: false`, no `poll_frequency`; real-clock tests already x20/x10 (none at x50/x100).
+- [x] n1 (scenario Q11): the republish mark (`reshow`) is now `{ until, cap, seq, read }`: it ends
+      once its 25 s are over **and** a read that changed the values after the mark (`valuesSeq >
+seq`, adapter online) has published the feature, or at `reshowMax` (10 min). Tests: Q11, the mark
+      lifted then nothing more, the cap.
+- [x] n2: tests for the 4 other "sent, not confirmed" paths (no status 1, not read back: timeout,
+      not read back, not read back in time: never the old value at once, the 5 s read publishes it),
+      `forgetShown` in the `mayHaveLeft` branch (same tests, 5 s read of an unapplied write), and
+      `replaced.pending` (nothing published while the newer one waits).
+- Mutants (private copy, one at a time, `memcap`): M1 n1 reverted, M2–M5 `refusal` instead of
+  `unconfirmed` on each path, M6 no `forgetShown`, M7 no `replaced.pending`, M8 mark read without
+  the sequence check, M9 without the online check, M10 no cap, M11 poll not stamping `valuesSeq`:
+  all killed but M8 and M9, equivalent: the mark is set read only where `queueStates` has just pushed the feature with its published memory forgotten, so the card shows the value in memory (never a typed one); a later read that differs is published anyway. The checks only keep the mark for reads made after it.
+- Still accepted (r031 r1): `waiting.size > 0` in `commandOf` not pinned by a test (order only).

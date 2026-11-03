@@ -8,7 +8,7 @@ already taken and the next milestones.
 
 A Gladys Assistant **external integration** of type `device`: a Node.js
 service (Node 22+, ESM, no build step) in its own sandboxed Docker container,
-talking to Gladys through `@gladysassistant/integration-sdk` (v0.15), its only
+talking to Gladys through `@gladysassistant/integration-sdk` (v0.16), its only
 runtime dependency (HTTP goes through our own client on `node:http`). It
 reads a boiler or heat pump with a Siemens controller through the JSON API
 of a BSB-LAN adapter (local, plain http, optional passkey and basic auth)

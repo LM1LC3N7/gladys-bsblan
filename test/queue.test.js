@@ -14,7 +14,15 @@ import { BsbLanApp } from '../src/app.js';
 import { SECOND } from '../src/constants.js';
 import { registerHandlers } from '../src/handlers.js';
 import { memoryStore } from '../src/store.js';
-import { HOST, MAC_ID, NOW, fakeBsbLan, fullParams, settle } from './fixtures/fakeBsbLan.js';
+import {
+  HOST,
+  MAC_ID,
+  NOW,
+  fakeBsbLan,
+  fullParams,
+  inactive,
+  settle,
+} from './fixtures/fakeBsbLan.js';
 
 const ALLOWED = { address: HOST, allow_commands: true };
 const device = `ext:test-integration:bsblan:${MAC_ID}`;
@@ -300,4 +308,157 @@ test('r031 m3: a command still waiting at its answer never sets its card back; i
   await advance(10 * SECOND);
   assert.ok(writes(bsb).some(([id, v]) => id === '1010' && v === '23.0'));
   assert.equal(gladys.fake.lastState(feature('hc2-setpoint')), 23);
+});
+
+// --- Review 0.3.1 r2 (n1, n2), 0.3.2 ----------------------------------------------------
+
+/** /JS answered status 0: "sent, without confirmation", never applied. */
+const status0 = (r) =>
+  r.endpoint === '/JS'
+    ? { status: 200, body: JSON.stringify({ [r.body.Parameter]: { status: 0 } }) }
+    : undefined;
+
+test('r031-r2 n1 (Q11): unconfirmed, not applied, every read back failed: the first good read shows the real value', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = status0;
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const box = click('heating-setpoint', 21);
+  await advance(SECOND);
+  assert.match(box.ack.error, /sans confirmation \(no status 1\)/);
+  assert.equal(bsb.params[710].value, '20.0', 'never applied');
+  bsb.behave = undefined;
+  // The 5 s and 20 s read backs fail, and the polls after them, for 40 s.
+  bsb.down = true;
+  await advance(40 * SECOND);
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [], 'nothing while down');
+  bsb.down = false;
+  const reads = bsb.reads().length;
+  await advance(4 * 60 * SECOND, 500);
+  assert.ok(bsb.reads().length > reads, 'read again');
+  assert.deepEqual(
+    statesOf(gladys, 'heating-setpoint').slice(before),
+    [20],
+    'the real value, once, although equal to the last published',
+  );
+});
+
+test('r031-r2 n1: the mark is lifted by the first good read after the window, then nothing more', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = status0;
+  click('heating-setpoint', 21);
+  await advance(SECOND);
+  bsb.behave = undefined;
+  bsb.down = true;
+  await advance(40 * SECOND);
+  bsb.down = false;
+  await advance(4 * 60 * SECOND, 500);
+  assert.equal(app.reshow.size, 0, 'the mark is gone');
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  await advance(2 * 60 * SECOND, 500);
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [], 'equal: not again');
+});
+
+test('r031-r2 n1: the mark ends at its cap (10 min) when no read ever succeeds', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, advance, click } = await setup(t, { bsb });
+  bsb.behave = status0;
+  click('heating-setpoint', 21);
+  await advance(SECOND);
+  bsb.behave = undefined;
+  bsb.down = true;
+  await advance(5 * 60 * SECOND, 1000);
+  assert.equal(app.reshow.size, 1, 'kept past the 25 s while no read succeeds');
+  // Polls go on every 5 min at most: one after the cap drops it.
+  await advance(11 * 60 * SECOND, 1000);
+  assert.equal(app.reshow.size, 0, 'dropped at the cap');
+});
+
+/** Each "sent, without confirmation" path: the card is never set back at once. */
+const unconfirmedPaths = [
+  ['no status 1', () => status0],
+  [
+    'not read back: timeout',
+    () => {
+      let written = false;
+      return (r) => {
+        if (r.endpoint === '/JS') {
+          written = true;
+          return { status: 200, body: JSON.stringify({ 710: { status: 1 } }) };
+        }
+        return written && r.endpoint === '/JQ' ? 'timeout' : undefined;
+      };
+    },
+  ],
+  [
+    'not read back',
+    () => {
+      let written = false;
+      return (r) => {
+        if (r.endpoint === '/JS') {
+          written = true;
+          return { status: 200, body: JSON.stringify({ 710: { status: 1 } }) };
+        }
+        return written && r.endpoint === '/JQ'
+          ? { raw: { 710: inactive('Comfort setpoint') } }
+          : undefined;
+      };
+    },
+  ],
+  [
+    'not read back in time',
+    () => (r) =>
+      r.endpoint === '/JS'
+        ? { status: 200, delay: 3_900, body: JSON.stringify({ 710: { status: 1 } }) }
+        : undefined,
+  ],
+];
+
+for (const [reason, behave] of unconfirmedPaths) {
+  test(`r031-r2 n2: "${reason}" never republishes the value read before; the next read does`, async (t) => {
+    const bsb = fakeBsbLan({ params: fullParams() });
+    const { gladys, advance, click } = await setup(t, { bsb });
+    bsb.behave = behave();
+    const before = statesOf(gladys, 'heating-setpoint').length;
+    const box = click('heating-setpoint', 21);
+    await advance(4_500);
+    assert.ok(box.ack, 'answered');
+    assert.ok(
+      box.ack.error?.includes(`sans confirmation (${reason})`),
+      `the path under test: ${box.ack.error}`,
+    );
+    bsb.behave = undefined;
+    assert.deepEqual(
+      statesOf(gladys, 'heating-setpoint').slice(before),
+      [],
+      'nothing from before the write',
+    );
+    // The follow-up read (5 s after the write) publishes what it reads, even equal.
+    await advance(6 * SECOND);
+    assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [20]);
+  });
+}
+
+test('r031-r2 n2: a queued command replaced by a newer one never sets the card back', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  click('heating-setpoint', 22);
+  await settle();
+  const before = statesOf(gladys, 'hc2-setpoint').length;
+  const a = click('hc2-setpoint', 19);
+  await settle();
+  const b = click('hc2-setpoint', 23);
+  await settle();
+  await advance(200);
+  assert.match(a.ack.error, /valeur plus récente de ce réglage/);
+  assert.deepEqual(
+    statesOf(gladys, 'hc2-setpoint').slice(before),
+    [],
+    'nothing while the newer waits',
+  );
+  await advance(15 * SECOND);
+  assert.ok(b.ack);
+  assert.equal(gladys.fake.lastState(feature('hc2-setpoint')), 23);
+  assert.ok(!statesOf(gladys, 'hc2-setpoint').slice(before).includes(21));
 });

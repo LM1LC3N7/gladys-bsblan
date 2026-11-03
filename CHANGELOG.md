@@ -10,6 +10,25 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- Integration SDK 0.16 (`@gladysassistant/integration-sdk` `^0.16.0`); the
+  device already says `should_poll: false` (Gladys 5.3 polls a device
+  otherwise).
+
+### Fixed
+
+- A command "sent, without confirmation" that the controller did not apply,
+  while its read backs at 5 s and 20 s failed too (adapter busy or
+  unreachable): the card kept the value typed, as the value read back later
+  equalled the last one published. The setting is now published again by
+  the first read that succeeds after the command, within 10 minutes
+  (review 0.3.1 r2 n1).
+- Tests for the "sent, without confirmation" paths (no status 1, not read
+  back, not read back in time, read back timeout), the republication after
+  an unconfirmed and unapplied write, and a queued command replaced by a
+  newer one (review 0.3.1 r2 n2).
+
 ## [0.3.1] - 2026-11-03
 
 ### Changed

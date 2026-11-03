@@ -152,8 +152,14 @@ export const TIMINGS = {
   commandSpacing: 3 * SECOND,
   /** Polls after a command, spaced: its effect, then a check. */
   followUps: [5 * SECOND, 20 * SECOND],
-  /** After a refused or failed command, its feature is published at every read for this long, equal or not. */
+  /**
+   * After a refused or failed command, its feature is published at every read
+   * for this long, equal or not, and then until a successful read has
+   * published it (0.3.2, r031-r2 n1: the reads of the window may all fail),
+   * at most reshowMax.
+   */
   reshow: 25 * SECOND,
+  reshowMax: 10 * MINUTE,
   /** A queued command not started after this long is dropped (typed too long ago). */
   queueMaxAge: 30 * SECOND,
   /** A sent command keeps its guard until a read shows what it asked, or 90 s. */
