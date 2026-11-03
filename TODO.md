@@ -395,3 +395,10 @@ up to date at the end of every milestone.
 - Noted (r032 r2, no change): with `poll_interval` 600 s and a failed 5 s read, the next read
   comes after the 10 min cap, so the forced publication never happens; the docs say "within
   10 minutes", which stays exact.
+
+## Next patch (review bsblan-032-r3, minors)
+
+- [ ] m1: a value refused under the guard uses the 10 min window of the earlier write, not its own (scenario C1 in `_lots/hors-lot/bsblan-xdeco/r032/q-032r3.mjs`): the card can keep the refused value until the 30 min heartbeat. Fix: `mark.cap = Math.max(mark.cap, now + reshowMax)` in the guard, plus a test. The docs already count 10 min from the refusal.
+- [ ] m2: "twin" features showing the same parameter (`operating-mode`, `hc2-operating-mode`, `dhw-mode`, legacy 712/1612) are not under the mark: on reconnect they are republished with the value read before the write (S10). Either skip them too, or say "on the card of that setting" in the docs.
+- [ ] m3: docs style. Two sentences run past 50 words. "The reads 5 and 20 seconds later settle it" is not true during a pause after a 5xx.
+- [ ] m4: a setting changed on the controller just before the click is published by the command's fresh read and stays through a pause while the adapter is at the new value (S8). Also true in 0.3.1.
