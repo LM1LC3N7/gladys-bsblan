@@ -547,7 +547,7 @@ test('one command at a time, and 3 s between two writes: the second one waits, t
   assert.match((await first).error, /sans confirmation/);
   // Answered within Gladys's 5 s: it waits, it is not refused.
   assert.ok(second, 'answered within 5 s');
-  assert.match(second.error, /attend et part juste après/);
+  assert.match(second.error, /attend et part après elle/);
   await advance(10 * SECOND, 100);
   assert.deepEqual(
     sentAt.map(([id]) => id),

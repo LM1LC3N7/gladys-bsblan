@@ -116,7 +116,7 @@ test('XDECO n° 7: a second setpoint during the first one waits, then leaves; th
   await advance(5 * SECOND);
   assert.equal(first.ack.success, true);
   assert.ok(second.ack, 'answered within 5 s');
-  assert.match(second.ack.error ?? 'success', /attend et part juste après|success/);
+  assert.match(second.ack.error ?? 'success', /attend et part après elle|success/);
   await advance(10 * SECOND);
   assert.deepEqual(writes(bsb), [
     ['1010', '20.0'],
@@ -202,4 +202,102 @@ test('a waiting hot water setpoint checks the ceiling again when it leaves', asy
   await advance(15 * SECOND);
   assert.match(waiting.ack.error, /plafonnée à 55 °C/);
   assert.ok(!writes(bsb).some(([id]) => id === '1610'));
+});
+
+// --- Review 0.3.1 r1 (I1, m1, m2, m3) -------------------------------------------------
+
+/** The write is applied, its answer never comes in time ("sent, without confirmation"). */
+const appliedLate = (r) => (r.endpoint === '/JS' ? 'silent-applied' : undefined);
+
+test('r031 I1: a write that may have left (applied, answer late) never sets the card back to the old value', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = appliedLate;
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const box = click('heating-setpoint', 22);
+  await advance(5 * SECOND);
+  assert.match(box.ack.error, /sans confirmation/);
+  assert.equal(bsb.params[710].value, '22.0', 'applied by the controller');
+  bsb.behave = undefined;
+  await advance(25 * SECOND);
+  const after = statesOf(gladys, 'heating-setpoint').slice(before);
+  assert.ok(!after.includes(20), `never the value read before the write: ${after}`);
+  assert.equal(after.at(-1), 22, 'the reads that follow settle it');
+});
+
+test('r031 I1: a Protection sent without confirmation never sets the card back to the old mode', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = appliedLate;
+  const before = statesOf(gladys, 'mode').length;
+  const box = click('mode', 'protection');
+  await advance(5 * SECOND);
+  assert.match(box.ack.error, /sans confirmation|passe en tête/);
+  bsb.behave = undefined;
+  await advance(25 * SECOND);
+  const after = statesOf(gladys, 'mode').slice(before);
+  assert.ok(!after.includes('comfort'), `never the mode read before: ${after}`);
+  assert.equal(gladys.fake.lastState(feature('mode')), 'protection');
+});
+
+test('r031 m1: a confirmed success is published once, not again by the reads that follow', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const box = click('heating-setpoint', 22);
+  await advance(30 * SECOND);
+  assert.equal(box.ack.success, true);
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [22]);
+});
+
+test('r031 m2: a queued command that cannot start within 30 s is dropped, the card shows the real value', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, gladys, advance, click } = await setup(t, { bsb });
+  click('heating-setpoint', 21);
+  await advance(2 * SECOND);
+  // The adapter kept busy (a long run of commands): nothing may start for 40 s.
+  app.quietUntil = Date.now() + 40 * SECOND;
+  const before = statesOf(gladys, 'hc2-setpoint').length;
+  const late = click('hc2-setpoint', 24);
+  await advance(45 * SECOND);
+  assert.match(late.ack.error, /attend et part après elle/);
+  assert.ok(!writes(bsb).some(([id]) => id === '1010'), 'never sent');
+  assert.ok(statesOf(gladys, 'hc2-setpoint').slice(before).includes(21), 'the real value again');
+});
+
+test('r031 m3: restart while a command waits, the new adapter read within the 3 s: never sent', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, advance, click } = await setup(t, { bsb });
+  click('heating-setpoint', 21);
+  await advance(1500);
+  assert.deepEqual(writes(bsb), [['710', '21.0']]);
+  const waiting = click('hc2-setpoint', 24);
+  await settle();
+  assert.equal(app.waiting.size, 1);
+  // A new configuration: started again, the adapter read again, live before the 3 s are over.
+  const restarting = app.start(ALLOWED);
+  await advance(1500);
+  await restarting;
+  assert.ok(app.live, 'read again within the 3 s');
+  await advance(10 * SECOND);
+  assert.match(waiting.ack.error, /redémarré pendant l'attente/);
+  assert.deepEqual(writes(bsb), [['710', '21.0']], 'never sent on the new configuration');
+});
+
+test('r031 m3: a command still waiting at its answer never sets its card back; it lands afterwards', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = appliedLate; // the first one holds the adapter until 4.3 s
+  click('heating-setpoint', 21);
+  await settle();
+  bsb.behave = (r) =>
+    r.endpoint === '/JS' && r.body.Parameter === '710' ? 'silent-applied' : undefined;
+  const before = statesOf(gladys, 'hc2-setpoint').length;
+  const waiting = click('hc2-setpoint', 23);
+  await advance(4_500);
+  assert.match(waiting.ack.error, /attend et part après elle/);
+  assert.deepEqual(statesOf(gladys, 'hc2-setpoint').slice(before), [], 'nothing while it waits');
+  await advance(10 * SECOND);
+  assert.ok(writes(bsb).some(([id, v]) => id === '1010' && v === '23.0'));
+  assert.equal(gladys.fake.lastState(feature('hc2-setpoint')), 23);
 });

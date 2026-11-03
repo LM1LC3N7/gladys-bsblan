@@ -526,7 +526,7 @@ test('real clock (r3 I1): a start or a new configuration in progress when stop()
   assert.equal(app.config.pollInterval, 600, 'nor with the new interval');
 });
 
-test('real clock, x20 (0.3.1): two setpoints back to back, the second waits, both applied, 3 s apart', async () => {
+test('real clock, x10, 20 pairs (0.3.1): two setpoints back to back, the second waits, both applied, 3 s apart', async () => {
   const SPEED = 10;
   const adapter = await fakeAdapter();
   const clock = scaled(SPEED);
@@ -576,7 +576,7 @@ test('real clock, x20 (0.3.1): two setpoints back to back, the second waits, bot
   for (const o of outcomes) {
     assert.equal(o.first, 'ok', JSON.stringify(o));
     assert.ok(
-      o.second === 'ok' || /attend et part juste après|waits and is sent/.test(o.second),
+      o.second === 'ok' || /attend et part après elle|waits and is sent/.test(o.second),
       JSON.stringify(o),
     );
     assert.deepEqual(

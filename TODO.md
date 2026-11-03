@@ -327,5 +327,9 @@ up to date at the end of every milestone.
   every check again at dequeue, own budget from dequeue, ack "queued" by 4.3 s); `/data` wording (owner
   AND write, Synology ACL); r2 n2 (probe never awaited, test), n1 (`store.probe()` test file, state left
   alone), n3 (docs).
+- Review 0.3.1 r1 (I1 + 3 m) fixed: `unconfirmed()` marks "sent, without confirmation" (`mayHaveLeft`): no
+  republication of the value read before, only `reshow`; reshow only after a failure (never a success);
+  `queueMaxAge` 30 s; tests for the double restart net, no republication while queued, x10 real clock.
+  Not pinned by a test: `waiting.size > 0` in `commandOf` (order only, during the 0 ms queue timer).
 - A protective click drops every queued command, not only those of its circuit (as it already cancelled
   every command not sent yet since 0.2.0): simpler and on the safe side.

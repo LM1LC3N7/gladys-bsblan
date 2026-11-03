@@ -296,17 +296,21 @@ claire (silence, connexion coupée, erreur 5xx, statut 0), Gladys affiche
 « Commande envoyée, sans confirmation » : vérifiez la valeur, relue 5 puis
 20 secondes plus tard. Une commande à la fois, et 3 secondes au moins entre
 deux écritures. Une commande qui arrive pendant une autre (ou dans ces 3
-secondes) **attend** et part juste après, avec sa propre relecture et
+secondes) **attend** et part après elle, avec sa propre relecture et
 toutes les vérifications à nouveau (l'option, le plafond de l'eau chaude,
 la plage, une pause, l'adaptateur) ; Gladys répond alors « celle-ci attend
-et part juste après ». Une seule attend par réglage : une valeur plus
+et part après elle ». Celle qui ne peut pas partir sous 30 secondes est
+abandonnée, non envoyée. Une seule attend par réglage : une valeur plus
 récente du même réglage la remplace. Une Protection ou une eau chaude à
 l'arrêt arrivée après elle l'annule (jamais envoyée après une commande de
 protection), un redémarrage de l'intégration aussi. Les commandes de
-protection n'attendent jamais derrière elle. Après toute commande refusée
-ou en échec, la carte reprend tout de suite la valeur réelle (sinon Gladys
-garde la valeur saisie), et les lectures des 25 secondes suivantes la
-publient même inchangée.
+protection n'attendent jamais derrière elle. Après une commande refusée
+avant de partir, annulée, abandonnée ou relue inchangée, la carte reprend
+tout de suite la valeur lue (sinon Gladys garde la valeur saisie). Après
+« envoyée, sans confirmation » (le régulateur a pu l'appliquer), rien
+d'ancien n'est republié : les relectures de 5 et 20 secondes tranchent.
+Dans les deux cas, ces relectures publient le réglage même inchangé ;
+jamais après un succès confirmé.
 
 ## Erreurs et limites
 

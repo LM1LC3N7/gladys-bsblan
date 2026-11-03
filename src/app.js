@@ -1268,6 +1268,17 @@ export class BsbLanApp {
   }
 
   /**
+   * "Sent, without confirmation": the write may have reached the controller.
+   * Its card is never set back to the value read before (r031 I1): the reads
+   * that follow settle it.
+   */
+  unconfirmed(text) {
+    const err = this.refusal(text);
+    err.mayHaveLeft = true;
+    return err;
+  }
+
+  /**
    * The value of a command, checked strictly (null, '' or 'abc' are not a
    * number; a mode is one of the exact keys of its list), within the hard
    * limits. Returns `{ id, text, value, key?, protective? }`.
@@ -1326,17 +1337,31 @@ export class BsbLanApp {
     try {
       return await this.commandOf(target, value, received);
     } catch (err) {
-      // Refused or failed: the card shows the real value again at once
-      // (Gladys keeps the value typed otherwise). Still going (queued): later.
+      // Still going (queued): settled when it ends (afterFailure there).
       if (!err.pending) {
-        this.showReal(target);
+        this.afterFailure(target, err);
       }
       throw err;
-    } finally {
-      // The reads that follow (5 s, 20 s) publish it even when equal to the
-      // value published before (Gladys may show the value typed).
-      this.forgetShown(target);
     }
+  }
+
+  /**
+   * A command refused, failed or cancelled (never after a success: r031 m1).
+   * Surely not applied (refused before it left, cancelled, read back
+   * unchanged): the card shows the value read again at once (Gladys keeps
+   * the value typed otherwise). Maybe applied (sent, without confirmation):
+   * nothing is republished from before the write. Either way, the reads of
+   * the next TIMINGS.reshow publish the feature, equal or not.
+   */
+  afterFailure(target, err) {
+    if (err?.pending) {
+      return;
+    }
+    if (err?.mayHaveLeft) {
+      this.forgetShown(target);
+      return;
+    }
+    this.showReal(target);
   }
 
   async commandOf(target, value, received) {
@@ -1381,9 +1406,19 @@ export class BsbLanApp {
     const previous = this.waiting.get(key);
     if (previous) {
       this.waiting.delete(key);
-      previous.reject(this.refusal(ERRORS.queuedReplaced));
+      const replaced = this.refusal(ERRORS.queuedReplaced);
+      // The newer one settles the card: nothing republished for this one.
+      replaced.pending = true;
+      previous.reject(replaced);
     }
-    const entry = { target, wanted, arrival, epoch: this.stopEpoch, generation: this.generation };
+    const entry = {
+      target,
+      wanted,
+      arrival,
+      epoch: this.stopEpoch,
+      generation: this.generation,
+      queuedAt: received,
+    };
     entry.promise = new Promise((resolve, reject) => {
       entry.resolve = resolve;
       entry.reject = reject;
@@ -1410,9 +1445,8 @@ export class BsbLanApp {
       // Answered now; its outcome later: the card shows the real value if it fails.
       entry.promise.catch((err) => {
         this.logger.warn(`BSB-LAN ${target.role} ${wanted.value} (queued): ${err.message}`);
-        this.showReal(target);
+        this.afterFailure(target, err);
       });
-      entry.promise.finally(() => this.forgetShown(target)).catch(() => {});
       const err = this.refusal(ERRORS.queued);
       err.pending = true;
       throw err;
@@ -1446,6 +1480,12 @@ export class BsbLanApp {
     this.waiting.delete(key);
     if (entry.generation !== this.generation) {
       entry.reject(this.refusal(ERRORS.queuedDropped));
+      this.scheduleQueue();
+      return;
+    }
+    if (this.now() - entry.queuedAt > TIMINGS.queueMaxAge) {
+      // Typed too long ago to be sent unseen (r031 m2): its card shows the real value.
+      entry.reject(this.refusal(ERRORS.queuedTooOld));
       this.scheduleQueue();
       return;
     }
@@ -1760,7 +1800,7 @@ export class BsbLanApp {
       this.guard(key, plan);
       left();
       this.followUp();
-      throw this.refusal(slowOr(ERRORS.sentUnconfirmed(reason), err));
+      throw this.unconfirmed(slowOr(ERRORS.sentUnconfirmed(reason), err));
     }
     const outcome = writeOutcome(written, wanted.id);
     if (outcome === 'refused') {
@@ -1775,11 +1815,11 @@ export class BsbLanApp {
     left();
     this.followUp();
     if (outcome !== 'ok') {
-      throw this.refusal(ERRORS.sentUnconfirmed('no status 1'));
+      throw this.unconfirmed(ERRORS.sentUnconfirmed('no status 1'));
     }
     // Read back, in what is left of the answer budget.
     if (answerBy - this.now() < TIMINGS.commandMinRead) {
-      throw this.refusal(slowHinted(ERRORS.sentUnconfirmed('not read back in time')));
+      throw this.unconfirmed(slowHinted(ERRORS.sentUnconfirmed('not read back in time')));
     }
     let seen;
     try {
@@ -1804,7 +1844,9 @@ export class BsbLanApp {
         throw err;
       }
       this.block(err);
-      throw this.refusal(slowOr(ERRORS.sentUnconfirmed(`not read back: ${reasonOf(err)}`), err));
+      throw this.unconfirmed(
+        slowOr(ERRORS.sentUnconfirmed(`not read back: ${reasonOf(err)}`), err),
+      );
     }
     if (seen === plan.expected) {
       return;
@@ -1812,7 +1854,7 @@ export class BsbLanApp {
     if (seen !== undefined && seen === plan.from) {
       throw this.refusal(ERRORS.notApplied);
     }
-    throw this.refusal(ERRORS.sentUnconfirmed('not read back'));
+    throw this.unconfirmed(ERRORS.sentUnconfirmed('not read back'));
   }
 
   /**
@@ -1923,9 +1965,8 @@ export class BsbLanApp {
     if (first === 'late') {
       mapped.catch((err) => {
         this.logger.warn(`BSB-LAN ${role} ${wanted.value} (queued): ${err.message}`);
-        this.showReal(target);
+        this.afterFailure(target, err);
       });
-      mapped.finally(() => this.forgetShown(target)).catch(() => {});
       const queued = this.refusal(ERRORS.protectiveQueued);
       queued.pending = true;
       throw queued;

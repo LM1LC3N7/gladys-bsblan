@@ -96,9 +96,12 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
 - **A second command during the first one** (0.3.1): it waits (one per
   setting, the last one wins) and leaves once the first one is over and
   the 3 s after a write have passed, with its own fresh read and every
-  check again; a protective command after it, or a restart, drops it.
-  Any refused or failed command publishes the real value of its feature
-  at once, and the reads of the next 25 s publish it even unchanged.
+  check again; a protective command after it, a restart, or 30 s without
+  starting drops it. A command surely not applied (refused before it
+  left, cancelled, read back unchanged) publishes the value read again at
+  once; "sent, without confirmation" republishes nothing older (the
+  follow-up reads settle it). After either, the reads of the next 25 s
+  publish the feature even unchanged; never after a confirmed success.
 
 ## Credits
 

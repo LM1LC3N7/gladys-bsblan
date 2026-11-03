@@ -275,16 +275,20 @@ a clear confirmation (silence, dropped connection, 5xx error, status 0),
 Gladys shows "Command sent, without confirmation": check the value, read
 again 5 and 20 seconds later. One command at a time, and at least 3 seconds
 between two writes. A command that arrives while another one runs (or
-within those 3 seconds) **waits** and leaves right after, with its own
+within those 3 seconds) **waits** and leaves after it, with its own
 fresh read and every check again (the option, the hot water ceiling, the
 range, a pause, the adapter); Gladys then answers "this one waits and is
-sent right after it". At most one waits per setting: a newer value of the
+sent after it". One that cannot leave within 30 seconds is dropped, not
+sent. At most one waits per setting: a newer value of the
 same setting replaces it. A Protection or hot water Off that arrives after
 it drops it (never sent after a protective command), and so does a
 restart of the integration. Protective commands never wait behind it.
-After any refused or failed command, the card shows the real value again
-at once (Gladys otherwise keeps the value typed), and the reads of the
-next 25 seconds publish it even when unchanged.
+After a command refused before it left, cancelled, dropped or read back
+unchanged, the card shows the value read again at once (Gladys otherwise
+keeps the value typed). After "sent, without confirmation" (the controller
+may have applied it), nothing older is republished: the reads 5 and 20
+seconds later settle it. In both cases those reads publish the setting
+even when unchanged; never after a confirmed success.
 
 ## Errors and limits
 

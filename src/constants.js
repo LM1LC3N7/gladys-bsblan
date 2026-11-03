@@ -152,8 +152,10 @@ export const TIMINGS = {
   commandSpacing: 3 * SECOND,
   /** Polls after a command, spaced: its effect, then a check. */
   followUps: [5 * SECOND, 20 * SECOND],
-  /** After a command, its feature is published at every read for this long, equal or not. */
+  /** After a refused or failed command, its feature is published at every read for this long, equal or not. */
   reshow: 25 * SECOND,
+  /** A queued command not started after this long is dropped (typed too long ago). */
+  queueMaxAge: 30 * SECOND,
   /** A sent command keeps its guard until a read shows what it asked, or 90 s. */
   guard: 90 * SECOND,
   /** A protective command (Protection, hot water Off) not seen applied is written again, at most so often. */
