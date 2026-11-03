@@ -338,10 +338,10 @@ up to date at the end of every milestone.
 
 - [x] SDK `^0.16.0` (migration wave, `_lots/migration-sdk-0.16.md`): the device already carries
       `should_poll: false`, no `poll_frequency`; real-clock tests already x20/x10 (none at x50/x100).
-- [x] n1 (scenario Q11): the republish mark (`reshow`) is now `{ until, cap, seq, read }`: it ends
-      once its 25 s are over **and** a read that changed the values after the mark (`valuesSeq >
-seq`, adapter online) has published the feature, or at `reshowMax` (10 min). Tests: Q11, the mark
-      lifted then nothing more, the cap.
+- [x] n1 (scenario Q11): the republish mark (`reshow`) was made `{ until, cap, seq, read }`: it
+      ended once its 25 s were over **and** a read that changed the values after the mark
+      (`valuesSeq > seq`, adapter online) had published the feature, or at `reshowMax` (10 min).
+      Tests: Q11, the mark lifted then nothing more, the cap. Replaced in r032 r2 (below).
 - [x] n2: tests for the 4 other "sent, not confirmed" paths (no status 1, not read back: timeout,
       not read back, not read back in time: never the old value at once, the 5 s read publishes it),
       `forgetShown` in the `mayHaveLeft` branch (same tests, 5 s read of an unapplied write), and
@@ -349,5 +349,30 @@ seq`, adapter online) has published the feature, or at `reshowMax` (10 min). Tes
 - Mutants (private copy, one at a time, `memcap`): M1 n1 reverted, M2–M5 `refusal` instead of
   `unconfirmed` on each path, M6 no `forgetShown`, M7 no `replaced.pending`, M8 mark read without
   the sequence check, M9 without the online check, M10 no cap, M11 poll not stamping `valuesSeq`:
-  all killed but M8 and M9, equivalent: the mark is set read only where `queueStates` has just pushed the feature with its published memory forgotten, so the card shows the value in memory (never a typed one); a later read that differs is published anyway. The checks only keep the mark for reads made after it.
+  all killed but M8 and M9, equivalent then (the mark was set read only where `queueStates` had
+  just pushed the feature with its published memory forgotten).
 - Still accepted (r031 r1): `waiting.size > 0` in `commandOf` not pinned by a test (order only).
+
+## 0.3.2 r2 (review bsblan-xdeco 0.3.2 r1, d63060c: REFUSED, 1 I + 2 m)
+
+- [x] I1 (Q13, Q13b, Q14): an unconfirmed write that was applied could see its card forced back to
+      the value read before it (the mark forced `adapter.values` at any `queueStates`, and
+      `valuesSeq` was global). Now `paramSeqs` keeps, per parameter, the read number of the value
+      in memory (poll batch, or the `freshReads` seq it takes over; `keepFresh`; read back). The
+      mark carries its parameter and the last read number before the write (`err.writeSeq`). It
+      forces the feature, and becomes `read`, only once that parameter was read after the write.
+      Until then a `left` mark (sent, maybe applied) keeps the feature out of `queueStates`
+      entirely, so `connected` and `DEVICE_UPDATED` (SDK memory forgotten) never bring 20 back
+      either (the reviewer's "hors exigence" point, fixed rather than noted). `showReal` keeps
+      its immediate forced publication (explicit `forgetPublished` of that feature only).
+- [x] m1: the 25 s window is removed. It only made the reads of 25 s republish an equal value
+      (`NEW_STATE`, scenes again); with the per-parameter number the mark lives exactly until the
+      first read of its parameter after the write (or the refusal) has published it, or the
+      10 min cap. Test: a refusal publishes `[20, 20]` (at once, the 5 s read), not the 20 s read.
+- [x] m2: this file's 0.3.2 section reflowed.
+- Tests (fake clock): Q13, Q14, DEVICE_UPDATED during the mark, another command's fresh read,
+  the read back lifting the mark, a poll taking the read back over, no window.
+- Mutants (`_lots/hors-lot/bsblan-xdeco/r032/mutants-032r2.mjs`, the reviewer's runner adapted, 23):
+  all killed but M9 (no online check), equivalent as shown in r032 r1: offline, `deviceStates`
+  gives no command feature.
+- Reviewer's real-clock scenarios: `r032/q-032.mjs` Q13, Q13b, Q14, Q15 and `r031/q-*.mjs`: all PASS.

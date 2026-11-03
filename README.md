@@ -100,9 +100,10 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   starting drops it. A command surely not applied (refused before it
   left, cancelled, read back unchanged) publishes the value read again at
   once; "sent, without confirmation" republishes nothing older (the
-  follow-up reads settle it). After either, the reads of the next 25 s
-  publish the feature even unchanged, and if they all fail, the first
-  read that succeeds (within 10 min); never after a confirmed success.
+  follow-up reads settle it). After either, the first read of that
+  setting made after the write (or the refusal) publishes it even
+  unchanged; if the reads fail, the first one that succeeds does (within
+  10 min); never after a confirmed success.
 
 ## Credits
 

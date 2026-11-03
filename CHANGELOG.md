@@ -28,6 +28,16 @@ the notes of the version's GitHub Release.
   back, not read back in time, read back timeout), the republication after
   an unconfirmed and unapplied write, and a queued command replaced by a
   newer one (review 0.3.1 r2 n2).
+- A command "sent, without confirmation" that the controller did apply
+  (21) could have its card set back to the value read before the write
+  (20): by the end of a poll that had read it before, by another command
+  sent just after, or by Gladys reconnecting. Nothing older is republished
+  now: the setting waits for a read of its own parameter made after the
+  write, which publishes it even unchanged (review 0.3.2 r1 I1).
+- After a failed command, the setting is no longer republished unchanged
+  at every read for 25 s: once at the refusal (when surely not applied)
+  and once by the first read of that setting after it (review 0.3.2 r1
+  m1).
 
 ## [0.3.1] - 2026-11-03
 

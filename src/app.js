@@ -266,7 +266,11 @@ export class BsbLanApp {
     this.inFlight = undefined;
     /** Queued commands, one per `mac:role` (the last one wins), in arrival order. */
     this.waiting = new Map();
-    /** featureId -> until: published at every read, equal or not (after a command). */
+    /**
+     * featureId -> { cap, seq, param, left, read }: after a failed command, the
+     * feature is published, equal or not, by the first read of its parameter
+     * numbered after `seq` (queueStates).
+     */
     this.reshow = new Map();
     this.queueTimer = undefined;
     /** No new command before this time: a write left just before. */
@@ -275,8 +279,8 @@ export class BsbLanApp {
     this.guards = new Map();
     /** Increases at every read of parameters (a poll batch, a command's fresh read). */
     this.readSeq = 0;
-    /** The readSeq of the last read that changed the values in memory (reshow marks). */
-    this.valuesSeq = 0;
+    /** parameter id -> the readSeq of the read that gave its value in memory (reshow marks). */
+    this.paramSeqs = new Map();
     /** id -> { seq, entry }: the last fresh read of a command, per parameter. */
     this.freshReads = new Map();
     /** Increases at every protective command: a command that arrived before never leaves after. */
@@ -760,6 +764,7 @@ export class BsbLanApp {
       adapter.model = undefined;
       adapter.mac = undefined;
       this.freshReads.clear();
+      this.paramSeqs.clear();
     }
     if (adapter.apiVersion === undefined) {
       let version;
@@ -822,6 +827,8 @@ export class BsbLanApp {
     if (adapter.mac === info.mac) {
       for (const [id, fresh] of this.freshReads) {
         if (readAt.has(id) && fresh.seq > readAt.get(id)) {
+          // Its value comes from that read: its number too (r032 I1, Q13).
+          readAt.set(id, fresh.seq);
           stamps[id] = fresh.stamp;
           if (fresh.entry === undefined) {
             delete merged[id];
@@ -842,7 +849,9 @@ export class BsbLanApp {
     adapter.info = info;
     adapter.mac = info.mac;
     adapter.values = values;
-    this.valuesSeq = this.readSeq;
+    for (const [id, seq] of readAt) {
+      this.paramSeqs.set(id, seq);
+    }
     adapter.online = true;
     adapter.failures = 0;
     adapter.wait = undefined;
@@ -1064,9 +1073,9 @@ export class BsbLanApp {
   queueStates(created = this.createdFeatures()) {
     const now = this.now();
     for (const [id, mark] of this.reshow) {
-      // Over once its window has passed and a read made after the mark has
-      // published the feature (r031-r2 n1), or at the cap.
-      if (mark.cap <= now || (mark.until <= now && mark.read)) {
+      // Over once a read of its parameter made after the mark has published
+      // the feature (r031-r2 n1, r032 I1), or at the cap.
+      if (mark.cap <= now || mark.read) {
         this.reshow.delete(id);
       }
     }
@@ -1087,9 +1096,16 @@ export class BsbLanApp {
         if (created.has(id)) {
           const mark = this.reshow.get(id);
           if (mark) {
-            this.forgetPublished(id);
-            if (online && this.valuesSeq > mark.seq) {
+            if (online && (this.paramSeqs.get(mark.param) ?? 0) > mark.seq) {
+              // A value of its parameter read after the mark (after the
+              // write): published, equal or not.
+              this.forgetPublished(id);
               mark.read = true;
+            } else if (mark.left) {
+              // The write may have been applied: the value in memory was read
+              // before it and is never published again, even when Gladys
+              // forgot what it was sent (connected, DEVICE_UPDATED) (r032 I1).
+              continue;
             }
           }
           this.publisher.push(id, value);
@@ -1281,9 +1297,12 @@ export class BsbLanApp {
    * Its card is never set back to the value read before (r031 I1): the reads
    * that follow settle it.
    */
-  unconfirmed(text) {
+  unconfirmed(text, writeSeq) {
     const err = this.refusal(text);
     err.mayHaveLeft = true;
+    // The last read number before the write left: a read numbered after it
+    // shows what the write did.
+    err.writeSeq = writeSeq;
     return err;
   }
 
@@ -1359,15 +1378,16 @@ export class BsbLanApp {
    * Surely not applied (refused before it left, cancelled, read back
    * unchanged): the card shows the value read again at once (Gladys keeps
    * the value typed otherwise). Maybe applied (sent, without confirmation):
-   * nothing is republished from before the write. Either way, the reads of
-   * the next TIMINGS.reshow publish the feature, equal or not.
+   * nothing is republished from before the write. Either way, the first
+   * read of its parameter after the write (or after the refusal) publishes
+   * the feature, equal or not (forgetShown).
    */
   afterFailure(target, err) {
     if (err?.pending) {
       return;
     }
     if (err?.mayHaveLeft) {
-      this.forgetShown(target);
+      this.forgetShown(target, { seq: err.writeSeq, left: true });
       return;
     }
     this.showReal(target);
@@ -1541,27 +1561,38 @@ export class BsbLanApp {
   }
 
   /**
-   * After a command: the reads of the next TIMINGS.reshow publish this
-   * feature, equal or not to what was published before (queueStates); if
-   * none of them succeeds, the first successful read after it does (r031-r2
-   * n1: a write not applied, its read backs failed), within TIMINGS.reshowMax.
+   * After a failed command: the first successful read of its parameter
+   * numbered after `seq` (the last read before the write, or now) publishes
+   * this feature, equal or not to what was published before (queueStates),
+   * within TIMINGS.reshowMax. `left` (sent, maybe applied): until then the
+   * feature is not published at all (r032 I1). No window of equal
+   * republications (r032 m1).
    */
-  forgetShown(target) {
-    const now = this.now();
+  forgetShown(target, { seq = this.readSeq, left = false } = {}) {
     this.reshow.set(this.shownId(target), {
-      until: now + TIMINGS.reshow,
-      cap: now + TIMINGS.reshowMax,
-      seq: this.readSeq,
+      cap: this.now() + TIMINGS.reshowMax,
+      seq,
+      param: COMMANDS[target.role].id,
+      // Sent, maybe applied: nothing of this feature published until then.
+      left,
       read: false,
     });
   }
 
-  /** Publishes the real value of the feature again, now (the card leaves the value typed). */
+  /**
+   * Publishes the real value of the feature again, now (the card leaves the
+   * value typed): surely not applied, the value in memory is the real one.
+   */
   showReal(target) {
     if (this.stopped) {
       return;
     }
     this.forgetShown(target);
+    const id = this.shownId(target);
+    if (id) {
+      // This feature only (no id would forget every feature).
+      this.forgetPublished(id);
+    }
     this.queueStates();
     this.flush().catch(() => {});
   }
@@ -1672,8 +1703,8 @@ export class BsbLanApp {
       }
     }
     const seq = ++this.readSeq;
-    this.valuesSeq = seq;
     for (const id of ids) {
+      this.paramSeqs.set(id, seq);
       this.freshReads.set(id, { seq, entry: picked[id], stamp });
     }
     this.observe(mac, adapter.values, {
@@ -1777,6 +1808,8 @@ export class BsbLanApp {
     const answerBy = received + TIMINGS.commandAnswerBy;
     // The stamp this write takes when it leaves (requests leave one at a time).
     const writeStamp = this.ioSeq + 1;
+    // Reads numbered after this one were made after the write (one request at a time).
+    const writeSeq = this.readSeq;
     // The write left and was not refused: a kept stop counts a try; a
     // command that ARRIVED after a stop lifts it (never one that arrived
     // before, whenever its answer comes).
@@ -1818,7 +1851,7 @@ export class BsbLanApp {
       this.guard(key, plan);
       left();
       this.followUp();
-      throw this.unconfirmed(slowOr(ERRORS.sentUnconfirmed(reason), err));
+      throw this.unconfirmed(slowOr(ERRORS.sentUnconfirmed(reason), err), writeSeq);
     }
     const outcome = writeOutcome(written, wanted.id);
     if (outcome === 'refused') {
@@ -1833,11 +1866,11 @@ export class BsbLanApp {
     left();
     this.followUp();
     if (outcome !== 'ok') {
-      throw this.unconfirmed(ERRORS.sentUnconfirmed('no status 1'));
+      throw this.unconfirmed(ERRORS.sentUnconfirmed('no status 1'), writeSeq);
     }
     // Read back, in what is left of the answer budget.
     if (answerBy - this.now() < TIMINGS.commandMinRead) {
-      throw this.unconfirmed(slowHinted(ERRORS.sentUnconfirmed('not read back in time')));
+      throw this.unconfirmed(slowHinted(ERRORS.sentUnconfirmed('not read back in time')), writeSeq);
     }
     let seen;
     try {
@@ -1847,7 +1880,7 @@ export class BsbLanApp {
       const adapter = this.adapter;
       if (seen !== undefined && adapter?.values && adapter.mac === mac) {
         const seq = ++this.readSeq;
-        this.valuesSeq = seq;
+        this.paramSeqs.set(wanted.id, seq);
         const stamp = departedOf(again);
         this.freshReads.set(wanted.id, { seq, entry, stamp });
         adapter.values[spec.key] =
@@ -1865,6 +1898,7 @@ export class BsbLanApp {
       this.block(err);
       throw this.unconfirmed(
         slowOr(ERRORS.sentUnconfirmed(`not read back: ${reasonOf(err)}`), err),
+        writeSeq,
       );
     }
     if (seen === plan.expected) {
@@ -1873,7 +1907,7 @@ export class BsbLanApp {
     if (seen !== undefined && seen === plan.from) {
       throw this.refusal(ERRORS.notApplied);
     }
-    throw this.unconfirmed(ERRORS.sentUnconfirmed('not read back'));
+    throw this.unconfirmed(ERRORS.sentUnconfirmed('not read back'), writeSeq);
   }
 
   /**

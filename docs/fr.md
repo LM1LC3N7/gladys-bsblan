@@ -308,10 +308,12 @@ protection n'attendent jamais derrière elle. Après une commande refusée
 avant de partir, annulée, abandonnée ou relue inchangée, la carte reprend
 tout de suite la valeur lue (sinon Gladys garde la valeur saisie). Après
 « envoyée, sans confirmation » (le régulateur a pu l'appliquer), rien
-d'ancien n'est republié : les relectures de 5 et 20 secondes tranchent.
-Dans les deux cas, ces relectures publient le réglage même inchangé ; si
-elles échouent aussi (adaptateur injoignable), la première lecture réussie
-le fait, dans les 10 minutes ; jamais après un succès confirmé.
+d'ancien n'est republié, même après une reconnexion à Gladys ou une
+modification de l'appareil : les relectures de 5 et 20 secondes tranchent. Dans les deux cas, la
+première lecture de ce réglage faite après l'écriture (ou le refus) le
+publie même inchangé ; si elle échoue aussi (adaptateur injoignable), la
+première lecture réussie le fait, dans les 10 minutes ; jamais après un
+succès confirmé.
 
 ## Erreurs et limites
 
