@@ -333,3 +333,13 @@ up to date at the end of every milestone.
   Not pinned by a test: `waiting.size > 0` in `commandOf` (order only, during the 0 ms queue timer).
 - A protective click drops every queued command, not only those of its circuit (as it already cancelled
   every command not sent yet since 0.2.0): simpler and on the safe side.
+
+## Next patch (review bsblan-xdeco 0.3.1 r2, dc56a68) — n1 first
+
+- n1: the card can keep the typed value (scenario Q11): a write "sent, not confirmed" that was not
+  applied, then the 5 s and 20 s read-backs fail too; when reads come back the old value equals the
+  last published state and the 25 s republish window is over, so nothing is republished. Keep the
+  republish mark until the first successful read (with a cap).
+- n2: six fixed branches have no test (surviving mutants): 4 of the 5 "sent, not confirmed" paths
+  (`src/app.js:1818`, `1822`, `1847`, `1857`), the republish after an unconfirmed and unapplied
+  write, and `replaced.pending` (`src/app.js:1411`).
