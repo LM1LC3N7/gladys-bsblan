@@ -148,10 +148,12 @@ export const TIMINGS = {
   commandReadMax: 2_500,
   commandMinRead: 300,
   commandMinSend: 300,
-  /** After a write that may have left, the next command waits this long ("still running"). */
+  /** After a write that may have left, the next command waits this long (queued, 0.3.1). */
   commandSpacing: 3 * SECOND,
   /** Polls after a command, spaced: its effect, then a check. */
   followUps: [5 * SECOND, 20 * SECOND],
+  /** After a command, its feature is published at every read for this long, equal or not. */
+  reshow: 25 * SECOND,
   /** A sent command keeps its guard until a read shows what it asked, or 90 s. */
   guard: 90 * SECOND,
   /** A protective command (Protection, hot water Off) not seen applied is written again, at most so often. */

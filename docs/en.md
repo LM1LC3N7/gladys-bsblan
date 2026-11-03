@@ -104,7 +104,8 @@ zones; Gladys would average them). Only 8740 (circuit 1) does.
 is read again only every 10 minutes, not at every read. If you typed 8770
 in "Extra parameters" with version 0.2.0, its "BSB 8770" feature keeps its
 value; the status suggests adding the new feature from Discovery and
-removing 8770 from the list. Read every 30
+removing 8770 from the list. Once removed from the list, "BSB 8770" stays
+on the device without a new value: delete it from the device in Gladys. Read every 30
 seconds by default (10 s to 10 min, configurable), a few parameters per
 request (the adapter queries the bus one parameter after the other).
 
@@ -273,7 +274,17 @@ confirmation"). A status 2 (read-only parameter) gives "BSB-LAN refused the comm
 a clear confirmation (silence, dropped connection, 5xx error, status 0),
 Gladys shows "Command sent, without confirmation": check the value, read
 again 5 and 20 seconds later. One command at a time, and at least 3 seconds
-between two writes (otherwise "still running").
+between two writes. A command that arrives while another one runs (or
+within those 3 seconds) **waits** and leaves right after, with its own
+fresh read and every check again (the option, the hot water ceiling, the
+range, a pause, the adapter); Gladys then answers "this one waits and is
+sent right after it". At most one waits per setting: a newer value of the
+same setting replaces it. A Protection or hot water Off that arrives after
+it drops it (never sent after a protective command), and so does a
+restart of the integration. Protective commands never wait behind it.
+After any refused or failed command, the card shows the real value again
+at once (Gladys otherwise keeps the value typed), and the reads of the
+next 25 seconds publish it even when unchanged.
 
 ## Errors and limits
 
@@ -298,23 +309,38 @@ between two writes (otherwise "still running").
   deadlines of the commands and the 3 s between two writes stay as they
   are (they protect the heating).
 - **"The state could not be saved in /data (EACCES)"** in the logs, and
-  "/data is not writable" in the status (said from the start: a save is
-  tried when the integration starts): the data folder Gladys gives the
-  integration is not writable by its user (`node`, uid 1000). Gladys
+  "/data is not writable" in the status (said from the start: a test file
+  is written then removed when the integration starts, the state itself is
+  left as it is): the data folder Gladys gives the integration is not
+  writable by its user (`node`, uid 1000). It needs **both** owner 1000
+  **and** write permission for it. Gladys
   creates it and gives it to uid 1000 when it creates the container; when
   that fails (Gladys log "Unable to prepare the data folder of integration
   …", a disk mounted without owners such as NFS or CIFS, Docker in
   rootless or user-namespace mode, a Gladys data folder mounted elsewhere
-  than the folder of its database), the folder stays owned by root. The
+  than the folder of its database), the folder stays owned by root. Seen
+  on a Synology NAS (DSM, Container Manager): the folder belonged to 1000
+  but was `dr-xr-xr-x`, with a Synology ACL (the `+` of `ls -l`) giving
+  only read access to "everyone"; `chown` changed nothing, `chmod 755`
+  fixed it. The
   integration keeps working, commands and Protection / hot water Off
   included: they are never refused nor dropped because of `/data`. Only a
   restart forgets what `/data` would keep: a pause after HTTP 429/5xx, the
   wait after refused credentials, and the protective commands not yet seen
   applied (they are not sent again after the restart). To fix it, on the
-  Gladys host: `sudo chown 1000:1000
-/var/lib/gladysassistant/external-integrations/ext-lm1lc3n7-gladys-bsblan`
-  (the folder of your Gladys data if it is elsewhere), then restart the
-  integration.
+  Gladys host, for the folder
+  `/var/lib/gladysassistant/external-integrations/ext-lm1lc3n7-gladys-bsblan`
+  (in the folder of your Gladys data if it is elsewhere): `ls -ld` it,
+  then `sudo chown 1000:1000` it if the owner is not 1000, and
+  `sudo chmod 755` it if it is not writable by its owner (on Synology, also
+  check its ACL in File Station or with `synoacltool`); then restart the
+  integration. The status note goes once a write works.
+- **"The state file in /data could not be read"** in the status: the file
+  `bsblan-state.json` is there but cannot be read (its rights, or a
+  damaged file). It is never rewritten: fix its rights (owner 1000,
+  `chmod 600`), or delete it (a pause, the wait after refused credentials
+  and the protective commands it held are then forgotten), then restart
+  the integration.
 - **Wrong passkey, or Gladys's IP not among the trusted addresses**: from
   the firmware source, BSB-LAN then closes the connection without any
   answer (never a 404). The integration cannot tell it from an unreachable

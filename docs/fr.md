@@ -111,7 +111,9 @@ de sonde d'ambiance sur le circuit 2, le cas courant) n'est relu que toutes
 les 10 minutes, pas à chaque lecture. Si vous aviez saisi 8770 dans
 « Paramètres supplémentaires » en version 0.2.0, sa fonctionnalité
 « BSB 8770 » garde sa valeur ; le statut propose d'ajouter la nouvelle
-depuis Découverte puis de retirer 8770 de la liste. Lecture toutes les 30 secondes par défaut (de 10 s à 10 min,
+depuis Découverte puis de retirer 8770 de la liste. Une fois retiré de la
+liste, « BSB 8770 » reste sur l'appareil sans nouvelle valeur : supprimez-la
+de l'appareil dans Gladys. Lecture toutes les 30 secondes par défaut (de 10 s à 10 min,
 réglable), quelques paramètres par requête (l'adaptateur interroge le bus un
 paramètre après l'autre).
 
@@ -293,7 +295,18 @@ lecture seule) donne « BSB-LAN a refusé la commande » ; sans confirmation
 claire (silence, connexion coupée, erreur 5xx, statut 0), Gladys affiche
 « Commande envoyée, sans confirmation » : vérifiez la valeur, relue 5 puis
 20 secondes plus tard. Une commande à la fois, et 3 secondes au moins entre
-deux écritures (sinon « encore en cours »).
+deux écritures. Une commande qui arrive pendant une autre (ou dans ces 3
+secondes) **attend** et part juste après, avec sa propre relecture et
+toutes les vérifications à nouveau (l'option, le plafond de l'eau chaude,
+la plage, une pause, l'adaptateur) ; Gladys répond alors « celle-ci attend
+et part juste après ». Une seule attend par réglage : une valeur plus
+récente du même réglage la remplace. Une Protection ou une eau chaude à
+l'arrêt arrivée après elle l'annule (jamais envoyée après une commande de
+protection), un redémarrage de l'intégration aussi. Les commandes de
+protection n'attendent jamais derrière elle. Après toute commande refusée
+ou en échec, la carte reprend tout de suite la valeur réelle (sinon Gladys
+garde la valeur saisie), et les lectures des 25 secondes suivantes la
+publient même inchangée.
 
 ## Erreurs et limites
 
@@ -322,23 +335,39 @@ deux écritures (sinon « encore en cours »).
   (ils protègent le chauffage).
 - **« The state could not be saved in /data (EACCES) »** dans les journaux,
   et « /data n'est pas accessible en écriture » dans le statut (dit dès le
-  démarrage : un enregistrement est tenté au lancement) : le dossier
-  de données que Gladys donne à l'intégration n'est pas inscriptible par
-  son utilisateur (`node`, uid 1000). Gladys le crée et le donne à l'uid
+  démarrage : un fichier d'essai est écrit puis supprimé au lancement,
+  l'état lui-même n'est pas touché) : le dossier de données que Gladys
+  donne à l'intégration n'est pas inscriptible par son utilisateur
+  (`node`, uid 1000). Il lui faut **à la fois** le propriétaire 1000
+  **et** le droit d'écriture. Gladys le crée et le donne à l'uid
   1000 en créant le conteneur ; quand cela échoue (journal Gladys « Unable
   to prepare the data folder of integration … », disque monté sans
   propriétaires comme NFS ou CIFS, Docker en mode rootless ou avec
   user namespaces, dossier de données de Gladys monté ailleurs que le
-  dossier de sa base), le dossier reste à root. L'intégration continue de
+  dossier de sa base), le dossier reste à root. Constaté sur un NAS
+  Synology (DSM, Container Manager) : le dossier appartenait bien à 1000
+  mais était en `dr-xr-xr-x`, avec une ACL Synology (le `+` de `ls -l`)
+  qui ne donnait que la lecture à « everyone » ; `chown` n'a rien changé,
+  `chmod 755` a réglé. L'intégration continue de
   fonctionner, commandes et Protection / eau chaude à l'arrêt compris :
   elles ne sont jamais refusées ni perdues à cause de `/data`. Seul un
   redémarrage oublie ce que `/data` garderait : une pause après un HTTP
   429/5xx, l'attente après des identifiants refusés et les commandes de
   protection pas encore vues appliquées (elles ne sont pas renvoyées après
-  le redémarrage). Pour corriger, sur l'hôte de Gladys : `sudo chown
-1000:1000 /var/lib/gladysassistant/external-integrations/ext-lm1lc3n7-gladys-bsblan`
-  (le dossier de vos données Gladys s'il est ailleurs), puis redémarrez
-  l'intégration.
+  le redémarrage). Pour corriger, sur l'hôte de Gladys, pour le dossier
+  `/var/lib/gladysassistant/external-integrations/ext-lm1lc3n7-gladys-bsblan`
+  (dans le dossier de vos données Gladys s'il est ailleurs) : regardez-le
+  avec `ls -ld`, puis `sudo chown 1000:1000` si le propriétaire n'est pas
+  1000, et `sudo chmod 755` s'il n'est pas inscriptible par son
+  propriétaire (sur Synology, vérifiez aussi son ACL dans File Station ou
+  avec `synoacltool`) ; redémarrez ensuite l'intégration. La note du statut
+  disparaît dès qu'une écriture passe.
+- **« Le fichier d'état de /data n'a pas pu être lu »** dans le statut : le
+  fichier `bsblan-state.json` est là mais illisible (ses droits, ou un
+  fichier abîmé). Il n'est jamais réécrit : corrigez ses droits
+  (propriétaire 1000, `chmod 600`), ou supprimez-le (une pause, l'attente
+  après des identifiants refusés et les commandes de protection qu'il
+  gardait sont alors oubliées), puis redémarrez l'intégration.
 - **Passkey fausse, ou IP de Gladys absente des adresses de confiance** :
   d'après la source du micrologiciel, BSB-LAN ferme alors la connexion sans
   rien répondre (jamais de 404). L'intégration ne peut pas le distinguer

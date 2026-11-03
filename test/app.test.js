@@ -445,7 +445,8 @@ test('a guard: after an unconfirmed write, the value read is never taken for "al
   const { command } = await setup(t, { bsb, config: ALLOWED });
   const sent = () => bsb.requests.filter((r) => r.endpoint === '/JS').length;
   assert.match((await command('mode', 'reduced', { wait: 4_400 })).error, /sans confirmation/);
-  await command('mode', 'reduced', { wait: 3 * SECOND });
+  // Within the 3 s after a write: it waits, then leaves (0.3.1); its own end is awaited.
+  await command('mode', 'reduced', { wait: 12 * SECOND });
   // The controller still reads "comfort": the guard holds, the command leaves.
   const back = await command('mode', 'comfort', { wait: 4_400 });
   assert.match(back.error, /sans confirmation/);
@@ -522,9 +523,16 @@ test('a command waits for the poll request in flight, then passes before the nex
   assert.deepEqual(bsb.requests[index - 1].ids, ['700'], 'the fresh read just before the write');
 });
 
-test('one command at a time, and 3 s between two writes', async (t) => {
+test('one command at a time, and 3 s between two writes: the second one waits, then leaves (0.3.1)', async (t) => {
+  const sentAt = [];
   const bsb = fakeBsbLan({
-    behave: (request) => (request.endpoint === '/JS' ? 'silent-applied' : undefined),
+    behave: (request) => {
+      if (request.endpoint === '/JS') {
+        sentAt.push([request.body.Parameter, Date.now()]);
+        return sentAt.length === 1 ? 'silent-applied' : undefined;
+      }
+      return undefined;
+    },
   });
   const { gladys, advance } = await setup(t, { bsb, config: ALLOWED });
   const d = gladys.fake.devices[0];
@@ -532,10 +540,24 @@ test('one command at a time, and 3 s between two writes', async (t) => {
   const setpoint = d.features.find((f) => f.external_id === feature('heating-setpoint'));
   const first = gladys.fake.setValue(d, mode, 'reduced');
   await settle();
-  const second = await gladys.fake.setValue(d, setpoint, 22);
-  assert.match(second.error, /encore en cours/);
+  let second;
+  gladys.fake.setValue(d, setpoint, 22).then((a) => (second = a));
+  await settle();
   await advance(5 * SECOND, 100);
   assert.match((await first).error, /sans confirmation/);
+  // Answered within Gladys's 5 s: it waits, it is not refused.
+  assert.ok(second, 'answered within 5 s');
+  assert.match(second.error, /attend et part juste après/);
+  await advance(10 * SECOND, 100);
+  assert.deepEqual(
+    sentAt.map(([id]) => id),
+    ['700', '710'],
+  );
+  assert.ok(sentAt[1][1] - sentAt[0][1] >= 3 * SECOND, 'never two writes within 3 s');
+  // Its own fresh read right before its write.
+  const index = bsb.requests.findIndex((r) => r.endpoint === '/JS' && r.body.Parameter === '710');
+  assert.ok(bsb.requests[index - 1].ids.includes('710'));
+  assert.equal(gladys.fake.lastState(feature('heating-setpoint')), 22);
 });
 
 test('credentials refused: a stop persisted, next tries 15 min then 1 h, never in a loop', async (t) => {

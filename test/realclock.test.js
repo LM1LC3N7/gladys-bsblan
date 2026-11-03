@@ -525,3 +525,73 @@ test('real clock (r3 I1): a start or a new configuration in progress when stop()
   assert.equal(app.config.username, '', 'not started again with the new credentials');
   assert.equal(app.config.pollInterval, 600, 'nor with the new interval');
 });
+
+test('real clock, x20 (0.3.1): two setpoints back to back, the second waits, both applied, 3 s apart', async () => {
+  const SPEED = 10;
+  const adapter = await fakeAdapter();
+  const clock = scaled(SPEED);
+  const gladys = createFakeGladys({ config: {} });
+  await gladys.connect();
+  const app = new BsbLanApp({ gladys, logger, store: memoryStore(), ...clock });
+  const device = { external_id: `ext:test:bsblan:${CAPTURE_MAC_ID}` };
+  const ids = gladys.externalIds('bsblan', CAPTURE_MAC_ID);
+  const outcomes = [];
+  try {
+    await within(
+      app.start({ address: `127.0.0.1:${adapter.port}`, allow_commands: true }),
+      10_000,
+      'start',
+    );
+    for (let i = 0; i < 20; i += 1) {
+      const comfort = i % 2 === 0 ? 21.5 : 20.5;
+      const reduced = i % 2 === 0 ? 16.5 : 17;
+      const first = app.setValue(device, { external_id: ids.feature('heating-setpoint') }, comfort);
+      const second = app.setValue(
+        device,
+        { external_id: ids.feature('heating-reduced-target') },
+        reduced,
+      );
+      const settled = await within(Promise.allSettled([first, second]), 10_000, `pair ${i}`);
+      // The queued one may answer "waits" before it leaves: wait for it to land.
+      const deadline = clock.now() + 8_000;
+      while (
+        (adapter.params[710].value !== comfort.toFixed(1) ||
+          adapter.params[712].value !== reduced.toFixed(1)) &&
+        clock.now() < deadline
+      ) {
+        await sleep(20);
+      }
+      outcomes.push({
+        i,
+        first: settled[0].status === 'fulfilled' ? 'ok' : settled[0].reason.message,
+        second: settled[1].status === 'fulfilled' ? 'ok' : settled[1].reason.message,
+        values: [adapter.params[710].value, adapter.params[712].value],
+      });
+      await sleep(340);
+    }
+  } finally {
+    app.stop();
+    await adapter.close();
+  }
+  for (const o of outcomes) {
+    assert.equal(o.first, 'ok', JSON.stringify(o));
+    assert.ok(
+      o.second === 'ok' || /attend et part juste après|waits and is sent/.test(o.second),
+      JSON.stringify(o),
+    );
+    assert.deepEqual(
+      o.values,
+      [o.i % 2 === 0 ? '21.5' : '20.5', o.i % 2 === 0 ? '16.5' : '17.0'],
+      JSON.stringify(o),
+    );
+  }
+  // Never two writes within the 3 s spacing (300 ms real at x10).
+  const writes = adapter.hits.filter((h) => h.path === '/JS').map((h) => h.at);
+  assert.equal(writes.length, 40);
+  for (let k = 1; k < writes.length; k += 1) {
+    assert.ok(
+      writes[k] - writes[k - 1] >= 280,
+      `writes ${k - 1}/${k}: ${writes[k] - writes[k - 1]} ms`,
+    );
+  }
+});

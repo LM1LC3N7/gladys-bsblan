@@ -88,8 +88,17 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   integration still works (commands and protective commands are never
   refused nor dropped for it), says it in the status, and only a restart
   forgets the pause, the credentials wait and the protective commands not
-  yet seen applied. Fix on the host: `chown 1000:1000` that folder. See
-  the user docs.
+  yet seen applied. A test file (written then removed at start, the state
+  left as it is) says it from the start. Fix on the host: owner 1000
+  **and** write permission (`chown 1000:1000`, `chmod 755`; on Synology,
+  the folder's ACL can leave it `dr-xr-xr-x` for uid 1000). See the user
+  docs.
+- **A second command during the first one** (0.3.1): it waits (one per
+  setting, the last one wins) and leaves once the first one is over and
+  the 3 s after a write have passed, with its own fresh read and every
+  check again; a protective command after it, or a restart, drops it.
+  Any refused or failed command publishes the real value of its feature
+  at once, and the reads of the next 25 s publish it even unchanged.
 
 ## Credits
 

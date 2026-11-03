@@ -320,15 +320,12 @@ up to date at the end of every milestone.
   branches; m5 `room2Until` (8770 "---" read again every 10 min); m6 8770 is a `probe` (8740 alone is
   averaged); m7 release `minor` (0.3.0), `hc2-temperature-room` in the frozen ids of CLAUDE.md.
 
-## Next patch (review bsblan-xdeco r2, 42f23d0) — n2 first
+## 0.3.1 (XDECO, t/11458 n° 7, 2026-11-03)
 
-- n2: no test holds "the start-up save probe is never awaited" (`src/app.js:356`). A mutant that
-  awaits it survives; with a save that never ends, a held stop then leaves after ~2 s instead of
-  ~8 ms. Add a test: reading answers, save never resolves, held stop sent at once.
-- n1: the start-up save probe rewrites the bounded `/data` state against the start-up clock. A
-  container started with a clock days behind (no RTC, before NTP) loses a 429/5xx pause and the
-  wait after refused credentials for good (0.2.0 left the file alone). Held stops untouched.
-  Probe with a separate test file instead of rewriting the state.
-- n3: docs: give the remedy for the "state file unreadable" note (a corrupt file is never
-  rewritten: fix its rights or delete it); say that after removing 8770 from the extra
-  parameters, "BSB 8770" stays on the device without a value (delete it from the device).
+- Done: real value republished after any refused/failed command (`showReal`, `reshow` 25 s); queued
+  commands (`waiting`, one per `mac:role`, last wins, dropped by any protective click and by `stop()`,
+  every check again at dequeue, own budget from dequeue, ack "queued" by 4.3 s); `/data` wording (owner
+  AND write, Synology ACL); r2 n2 (probe never awaited, test), n1 (`store.probe()` test file, state left
+  alone), n3 (docs).
+- A protective click drops every queued command, not only those of its circuit (as it already cancelled
+  every command not sent yet since 0.2.0): simpler and on the safe side.

@@ -264,6 +264,11 @@ export class BsbLanApp {
     this.lastTestAt = -Infinity;
     /** The command in flight (one at a time for the adapter). */
     this.inFlight = undefined;
+    /** Queued commands, one per `mac:role` (the last one wins), in arrival order. */
+    this.waiting = new Map();
+    /** featureId -> until: published at every read, equal or not (after a command). */
+    this.reshow = new Map();
+    this.queueTimer = undefined;
     /** No new command before this time: a write left just before. */
     this.quietUntil = -Infinity;
     /** `${mac}:${role}` -> { from, expected, moved, until }: a command sent, not seen yet. */
@@ -350,10 +355,54 @@ export class BsbLanApp {
     }
     this.memoryLoaded = true;
     if (await this.reloadMemory()) {
-      // A save to try /data at once (what was read, merged: nothing lost), so
-      // that a /data not writable is said from the start, not at the first
-      // pause or protective command. Never awaited past TIMINGS.dataWait.
-      void this.saveMemory();
+      // A write test of /data at once (a separate file, the state left as it
+      // is: a clock behind at start never shortens a kept pause), so that a
+      // /data not writable is said from the start, not at the first pause or
+      // protective command. Never awaited (r2 n1, n2).
+      void this.probeData();
+    }
+  }
+
+  /** Writes and removes a test file in /data (bounded): only says whether /data is writable. */
+  probeData() {
+    const attempt = Promise.resolve()
+      .then(() => this.store.probe?.())
+      .then(
+        () => this.dataWorks(),
+        (err) => this.dataFailed(err),
+      );
+    return this.bounded(attempt);
+  }
+
+  dataWorks() {
+    if (this.saveFailing !== undefined) {
+      this.saveFailing = undefined;
+      this.logger.info('The state is saved in /data again');
+      this.refreshStatus();
+    }
+  }
+
+  dataFailed(err) {
+    // A code only (EACCES, EROFS…): never a path nor a content.
+    const code = /^[A-Z][A-Z0-9_]{1,20}$/.test(String(err?.code)) ? err.code : 'error';
+    const first = this.saveFailing === undefined;
+    this.saveFailing = code;
+    if (!this.saveWarned) {
+      this.saveWarned = true;
+      this.logger.warn(
+        `The state could not be saved in /data (${code}): ` +
+          (code === 'EACCES' || code === 'EPERM'
+            ? 'the data folder of the integration is not writable by its user (node, uid 1000): ' +
+              'it needs owner 1000 AND write permission (chmod 755; on a Synology NAS, also ' +
+              'the ACL of the folder). '
+            : '') +
+          'Commands and protective commands still work, but a restart forgets a pause after ' +
+          'an HTTP 429/5xx, the wait after refused credentials and the protective commands ' +
+          'not yet seen applied. See the documentation.',
+      );
+    }
+    if (first) {
+      this.refreshStatus();
     }
   }
 
@@ -416,32 +465,8 @@ export class BsbLanApp {
         return;
       }
       await this.store.save(serializeMemory(this.memory));
-      if (this.saveFailing !== undefined) {
-        this.saveFailing = undefined;
-        this.logger.info('The state is saved in /data again');
-        this.refreshStatus();
-      }
-    })().catch((err) => {
-      // A code only (EACCES, EROFS…): never a path nor a content.
-      const code = /^[A-Z][A-Z0-9_]{1,20}$/.test(String(err?.code)) ? err.code : 'error';
-      const first = this.saveFailing === undefined;
-      this.saveFailing = code;
-      if (!this.saveWarned) {
-        this.saveWarned = true;
-        this.logger.warn(
-          `The state could not be saved in /data (${code}): ` +
-            (code === 'EACCES' || code === 'EPERM'
-              ? 'the data folder of the integration is not writable by its user (node, uid 1000). '
-              : '') +
-            'Commands and protective commands still work, but a restart forgets a pause after ' +
-            'an HTTP 429/5xx, the wait after refused credentials and the protective commands ' +
-            'not yet seen applied. See the documentation.',
-        );
-      }
-      if (first) {
-        this.refreshStatus();
-      }
-    });
+      this.dataWorks();
+    })().catch((err) => this.dataFailed(err));
     return this.bounded(attempt);
   }
 
@@ -489,6 +514,7 @@ export class BsbLanApp {
       this.stopTimer = undefined;
     }
     this.stopFlight.clear();
+    this.dropQueued(ERRORS.queuedDropped);
     if (this.adapter) {
       this.clearTimer();
       for (const handle of this.adapter.followUps) {
@@ -1033,6 +1059,12 @@ export class BsbLanApp {
   }
 
   queueStates(created = this.createdFeatures()) {
+    const now = this.now();
+    for (const [id, until] of this.reshow) {
+      if (until <= now) {
+        this.reshow.delete(id);
+      }
+    }
     for (const { mac } of this.ourDevices()) {
       const status = this.standing(mac);
       if (status === undefined) {
@@ -1048,6 +1080,9 @@ export class BsbLanApp {
       });
       for (const { device_feature_external_id: id, ...value } of states) {
         if (created.has(id)) {
+          if (this.reshow.has(id)) {
+            this.forgetPublished(id);
+          }
           this.publisher.push(id, value);
         }
       }
@@ -1288,6 +1323,23 @@ export class BsbLanApp {
     if (!target || !COMMAND_ROLES.includes(target.role)) {
       throw this.refusal(ERRORS.readOnly);
     }
+    try {
+      return await this.commandOf(target, value, received);
+    } catch (err) {
+      // Refused or failed: the card shows the real value again at once
+      // (Gladys keeps the value typed otherwise). Still going (queued): later.
+      if (!err.pending) {
+        this.showReal(target);
+      }
+      throw err;
+    } finally {
+      // The reads that follow (5 s, 20 s) publish it even when equal to the
+      // value published before (Gladys may show the value typed).
+      this.forgetShown(target);
+    }
+  }
+
+  async commandOf(target, value, received) {
     const wanted = this.parseCommand(target.role, value);
     // The order of the commands is the order of their arrival, never of their answers.
     const arrival = ++this.arrival;
@@ -1298,8 +1350,9 @@ export class BsbLanApp {
     if (!this.config.allowCommands) {
       throw this.refusal(ERRORS.disabled);
     }
-    if (this.inFlight || received < this.quietUntil) {
-      throw this.refusal(ERRORS.stillRunning);
+    if (this.inFlight || received < this.quietUntil || this.waiting.size > 0) {
+      // Another command is running, or one left less than 3 s ago: waits.
+      return this.enqueue(target, wanted, received, arrival);
     }
     const promise = this.command(target, wanted, received, this.stopEpoch, arrival);
     this.inFlight = promise;
@@ -1309,7 +1362,151 @@ export class BsbLanApp {
       if (this.inFlight === promise) {
         this.inFlight = undefined;
       }
+      this.scheduleQueue();
     }
+  }
+
+  // --- Queued commands ---------------------------------------------------------------
+
+  /**
+   * At most one command waits per feature (the last one wins), sent once the
+   * running one is over and the 3 s after a write have passed, one at a
+   * time, with its own fresh read and every check again (option, ceiling,
+   * range, pause, adapter). Dropped by any protective command that arrives
+   * after it, and by a restart. Never in the way of a protective command:
+   * those pass before the queued requests, as before.
+   */
+  async enqueue(target, wanted, received, arrival) {
+    const key = `${target.mac}:${target.role}`;
+    const previous = this.waiting.get(key);
+    if (previous) {
+      this.waiting.delete(key);
+      previous.reject(this.refusal(ERRORS.queuedReplaced));
+    }
+    const entry = { target, wanted, arrival, epoch: this.stopEpoch, generation: this.generation };
+    entry.promise = new Promise((resolve, reject) => {
+      entry.resolve = resolve;
+      entry.reject = reject;
+    });
+    entry.promise.catch(() => {});
+    this.waiting.set(key, entry);
+    this.scheduleQueue();
+    let handle;
+    const late = new Promise((resolve) => {
+      handle = this.timers.setTimeout(
+        () => resolve('late'),
+        Math.max(0, received + TIMINGS.commandAnswerBy - this.now()),
+      );
+    });
+    const first = await Promise.race([
+      entry.promise.then(
+        () => 'done',
+        () => 'done',
+      ),
+      late,
+    ]);
+    this.timers.clearTimeout(handle);
+    if (first === 'late') {
+      // Answered now; its outcome later: the card shows the real value if it fails.
+      entry.promise.catch((err) => {
+        this.logger.warn(`BSB-LAN ${target.role} ${wanted.value} (queued): ${err.message}`);
+        this.showReal(target);
+      });
+      entry.promise.finally(() => this.forgetShown(target)).catch(() => {});
+      const err = this.refusal(ERRORS.queued);
+      err.pending = true;
+      throw err;
+    }
+    return entry.promise;
+  }
+
+  /** The next queued command, once nothing runs and the spacing after a write is over. */
+  scheduleQueue() {
+    if (this.queueTimer !== undefined || this.waiting.size === 0 || this.inFlight || this.stopped) {
+      return;
+    }
+    this.queueTimer = this.timers.setTimeout(
+      () => {
+        this.queueTimer = undefined;
+        this.runQueued();
+      },
+      Math.max(0, this.quietUntil - this.now()),
+    );
+  }
+
+  runQueued() {
+    if (this.inFlight || this.stopped || this.waiting.size === 0) {
+      return;
+    }
+    if (this.now() < this.quietUntil) {
+      this.scheduleQueue();
+      return;
+    }
+    const [key, entry] = this.waiting.entries().next().value;
+    this.waiting.delete(key);
+    if (entry.generation !== this.generation) {
+      entry.reject(this.refusal(ERRORS.queuedDropped));
+      this.scheduleQueue();
+      return;
+    }
+    // Its own budget, from now (it waited for the previous one).
+    const promise = this.command(
+      entry.target,
+      entry.wanted,
+      this.now(),
+      entry.epoch,
+      entry.arrival,
+    );
+    this.inFlight = promise;
+    promise.then(entry.resolve, entry.reject).finally(() => {
+      if (this.inFlight === promise) {
+        this.inFlight = undefined;
+      }
+      this.scheduleQueue();
+    });
+  }
+
+  /** Drops every queued command (a protective command arrived, or a restart). */
+  dropQueued(text) {
+    if (this.queueTimer !== undefined) {
+      this.timers.clearTimeout(this.queueTimer);
+      this.queueTimer = undefined;
+    }
+    for (const entry of this.waiting.values()) {
+      entry.reject(this.refusal(text));
+    }
+    this.waiting.clear();
+  }
+
+  forgetPublished(id) {
+    try {
+      this.gladys.forgetPublishedStates?.(id);
+    } catch {
+      // never in the way of a read
+    }
+  }
+
+  /** The feature id of a command target, when its device is created in Gladys. */
+  shownId(target) {
+    return deviceIds(this.gladys, target.mac).feature(target.role);
+  }
+
+  /**
+   * After a command: the reads of the next TIMINGS.reshow publish this
+   * feature, equal or not to what was published before (queueStates).
+   */
+  forgetShown(target) {
+    this.reshow.set(this.shownId(target), this.now() + TIMINGS.reshow);
+  }
+
+  /** Publishes the real value of the feature again, now (the card leaves the value typed). */
+  showReal(target) {
+    if (this.stopped) {
+      return;
+    }
+    this.forgetShown(target);
+    this.queueStates();
+    this.flush().catch(() => {});
   }
 
   /** The checks before sending, on the latest configuration and state. */
@@ -1647,6 +1844,7 @@ export class BsbLanApp {
       // A click: cancels what arrived before it, and is kept (in /data,
       // never awaited) until a read that left after it shows it applied.
       this.stopEpoch += 1;
+      this.dropQueued(ERRORS.overtaken);
       this.keepStop(mac, role, arrival);
     }
     const stop = this.stopOf(mac, role);
@@ -1723,10 +1921,14 @@ export class BsbLanApp {
     ]);
     this.timers.clearTimeout(handle);
     if (first === 'late') {
-      mapped.catch((err) =>
-        this.logger.warn(`BSB-LAN ${role} ${wanted.value} (queued): ${err.message}`),
-      );
-      throw this.refusal(ERRORS.protectiveQueued);
+      mapped.catch((err) => {
+        this.logger.warn(`BSB-LAN ${role} ${wanted.value} (queued): ${err.message}`);
+        this.showReal(target);
+      });
+      mapped.finally(() => this.forgetShown(target)).catch(() => {});
+      const queued = this.refusal(ERRORS.protectiveQueued);
+      queued.pending = true;
+      throw queued;
     }
     return mapped;
   }

@@ -807,11 +807,15 @@ test('r2: an old stop read late from /data never repeats a Protection of this ru
 /** /data mounted but not writable by uid 1000 (the forum report): every save EACCES. */
 function deniedStore() {
   const store = memoryStore();
+  const denied = () =>
+    Object.assign(new Error("EACCES: permission denied, open '/data/x'"), { code: 'EACCES' });
   store.save = async function save() {
     this.attempts += 1;
-    throw Object.assign(new Error("EACCES: permission denied, open '/data/x'"), {
-      code: 'EACCES',
-    });
+    throw denied();
+  };
+  store.probe = async function probe() {
+    this.probes += 1;
+    throw denied();
   };
   return store;
 }
@@ -903,23 +907,47 @@ test('r4 m2: Protection clicked during a restart: "kept, sent as soon as it answ
 test('r1 m1: /data not writable is said from the start (a save tried at start), without a click', async (t) => {
   const store = deniedStore();
   const { gladys } = await setup(t, { store });
-  assert.ok(store.attempts >= 1, 'a save tried at start');
+  assert.ok(store.probes >= 1, 'a write test at start');
   assert.match(message(gladys).fr, /\/data n'est pas accessible en écriture \(EACCES\)/);
   assert.match(message(gladys).fr, /uid 1000/);
 });
 
-test('r1 m1: the save at start keeps what /data holds (a kept stop, a pause), never empties it', async (t) => {
+test('r2 n1: the write test at start never rewrites the state (a clock behind keeps the long pause)', async (t) => {
+  // Written by a run whose clock was ahead (or read by one whose clock is behind).
   const kept = {
-    pausedUntil: 0,
-    auth: { failures: 0, until: 0 },
-    stops: [{ mac: MAC_ID, role: 'dhw-mode-select', sent: 0, diff: 0 }],
+    pausedUntil: NOW + 30 * 24 * 3600 * SECOND,
+    auth: { failures: 2, until: NOW + 30 * 24 * 3600 * SECOND },
+    stops: [],
   };
-  const bsb = fakeBsbLan({ params: fullParams() });
-  bsb.behave = ignoring;
   const store = memoryStore(kept);
-  await setup(t, { store, bsb });
-  assert.equal(store.data.stops.length, 1);
-  assert.equal(store.data.stops[0].role, 'dhw-mode-select');
+  await setup(t, { store, connect: false }).then(({ gladys, advance }) => {
+    gladys.connect();
+    return advance(5 * SECOND);
+  });
+  assert.ok(store.probes >= 1, 'a write test at start');
+  assert.equal(store.saves, 0, 'the state left as it is');
+  assert.deepEqual(store.data, kept);
+});
+
+test('r2 n2: the write test at start is never awaited: a held stop leaves at once', async (t) => {
+  const kept = { stops: [{ mac: MAC_ID, role: 'mode', address: HOST, sent: 0, diff: 0 }] };
+  const store = memoryStore(kept);
+  store.probe = () => new Promise(() => {});
+  store.save = () => new Promise(() => {});
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance } = await setup(t, { store, bsb, connect: false });
+  const start = Date.now();
+  let sentAt;
+  bsb.behave = (r) => {
+    if (r.endpoint === '/JS' && sentAt === undefined) {
+      sentAt = Date.now();
+    }
+    return undefined;
+  };
+  gladys.connect();
+  await advance(3 * SECOND, 10);
+  assert.ok(sentAt !== undefined, 'sent');
+  assert.ok(sentAt - start < 500, `sent ${sentAt - start} ms after the start, never after /data`);
 });
 
 test('r1 m1: a state file there but unreadable is said in the status until it can be read', async (t) => {
@@ -937,6 +965,7 @@ test('r1 m2: another failure than EACCES/EPERM (disk full) never advises a chown
   store.save = async () => {
     throw Object.assign(new Error('ENOSPC'), { code: 'ENOSPC' });
   };
+  store.probe = store.save;
   const { gladys } = await setup(t, { store });
   assert.match(message(gladys).fr, /\(ENOSPC\)/);
   assert.match(message(gladys).fr, /plein, en lecture seule/);

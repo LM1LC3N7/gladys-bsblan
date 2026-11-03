@@ -248,8 +248,8 @@ export const T = {
     dataNotSaved: (code) => {
       const owner = code === 'EACCES' || code === 'EPERM';
       return both(
-        `/data is not writable (${code}): commands and protective commands work, but a restart forgets a pause after an HTTP 429/5xx, the wait after refused credentials and the protective commands not yet seen applied.${owner ? ' Give the data folder of the integration to uid 1000 on the host (see the documentation).' : ' Check the disk of Gladys (full, read only?).'}`,
-        `/data n'est pas accessible en écriture (${code}) : les commandes et les commandes de protection fonctionnent, mais un redémarrage oublie une pause après un HTTP 429/5xx, l'attente après des identifiants refusés et les commandes de protection pas encore vues appliquées.${owner ? " Donnez le dossier de données de l'intégration à l'uid 1000 sur l'hôte (voir la documentation)." : ' Vérifiez le disque de Gladys (plein, en lecture seule ?).'}`,
+        `/data is not writable (${code}): commands and protective commands work, but a restart forgets a pause after an HTTP 429/5xx, the wait after refused credentials and the protective commands not yet seen applied.${owner ? ' On the host, the data folder of the integration needs owner uid 1000 AND write permission (chown 1000:1000, chmod 755; on a Synology NAS, also its ACL), see the documentation.' : ' Check the disk of Gladys (full, read only?).'}`,
+        `/data n'est pas accessible en écriture (${code}) : les commandes et les commandes de protection fonctionnent, mais un redémarrage oublie une pause après un HTTP 429/5xx, l'attente après des identifiants refusés et les commandes de protection pas encore vues appliquées.${owner ? " Sur l'hôte, le dossier de données de l'intégration doit appartenir à l'uid 1000 ET être inscriptible (chown 1000:1000, chmod 755 ; sur un NAS Synology, aussi son ACL), voir la documentation." : ' Vérifiez le disque de Gladys (plein, en lecture seule ?).'}`,
       );
     },
     dataUnreadable: both(
@@ -360,9 +360,17 @@ export const ERRORS = {
     'BSB-LAN is paused (refused credentials, or busy): not sent.',
     'BSB-LAN est en pause (identifiants refusés, ou occupé) : non envoyée.',
   ),
-  stillRunning: both(
-    'Another command to BSB-LAN is still running: not sent.',
-    'Une autre commande vers BSB-LAN est encore en cours : non envoyée.',
+  queued: both(
+    'Another command to BSB-LAN is running: this one waits and is sent right after it (a few seconds), with the same checks. The card shows the real value again if it fails.',
+    'Une autre commande vers BSB-LAN est en cours : celle-ci attend et part juste après (quelques secondes), avec les mêmes vérifications. La carte reprend la valeur réelle si elle échoue.',
+  ),
+  queuedReplaced: both(
+    'A newer value of this setting arrived while it was waiting: not sent.',
+    'Une valeur plus récente de ce réglage est arrivée pendant son attente : non envoyée.',
+  ),
+  queuedDropped: both(
+    'The integration restarted while this command was waiting: not sent.',
+    "L'intégration a redémarré pendant l'attente de cette commande : non envoyée.",
   ),
   tooSlow: both(
     'BSB-LAN answered too slowly to send the command in time: not sent. Does it also publish in MQTT, or is the read interval too short? (see the documentation)',

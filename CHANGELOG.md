@@ -10,6 +10,30 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- A command that arrives while another one runs (or within the 3 s after a
+  write) now waits and leaves right after, instead of being refused
+  ("Another command … still running"): one per setting (the last one
+  wins), with its own fresh read and every check again when it leaves
+  (option, hot water ceiling, range, pause, adapter); dropped by a
+  Protection or hot water Off that arrives after it and by a restart;
+  protective commands never wait behind it (forum t/11458).
+- `/data` not writable: the status, log and docs now ask for owner 1000
+  **and** write permission (`chmod 755`, the ACL of a Synology folder),
+  not only `chown`. The check at start writes and removes a test file
+  instead of saving the state again (a clock behind at start no longer
+  shortens a kept pause), and is never awaited.
+
+### Fixed
+
+- After a refused or failed command, the card showed the value typed until
+  the page was reloaded: the real value of the feature is now published
+  again at once, and the reads of the next 25 s publish it even unchanged
+  (forum t/11458).
+- Docs: what to do with the "state file unreadable" note; "BSB 8770"
+  stays without a value once 8770 is removed from the extra parameters.
+
 ## [0.3.0] - 2026-11-02
 
 ### Added

@@ -17,7 +17,7 @@
 // shape (never an inherited or `__proto__` key).
 // -----------------------------------------------------------------------------
 
-import { readFile, rename, writeFile } from 'node:fs/promises';
+import { readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { FEATURES, TIMINGS } from './constants.js';
 import { DHW_MODES, MODES } from './params.js';
 
@@ -51,6 +51,16 @@ export function fileStore(path = STATE_FILE) {
         throw new Error('unreadable');
       }
       return JSON.parse(text);
+    },
+    /** Whether /data is writable: a separate empty file, written then removed (the state untouched). */
+    probe() {
+      const write = chain.then(async () => {
+        const test = `${path}.probe`;
+        await writeFile(test, '', { mode: 0o600 });
+        await unlink(test);
+      });
+      chain = write.catch(() => {});
+      return write;
     },
     save(data) {
       const text = JSON.stringify(data);
@@ -89,6 +99,16 @@ export function memoryStore(
         return Promise.reject(new Error('unreadable'));
       }
       return Promise.resolve(this.data === null ? null : JSON.parse(JSON.stringify(this.data)));
+    },
+    probes: 0,
+    async probe() {
+      this.probes += 1;
+      if (this.frozen) {
+        return new Promise(() => {});
+      }
+      if (this.failing) {
+        throw new Error('EROFS');
+      }
     },
     async save(data) {
       this.attempts += 1;
