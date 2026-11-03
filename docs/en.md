@@ -285,14 +285,17 @@ it drops it (never sent after a protective command), and so does a
 restart of the integration. Protective commands never wait behind it.
 After a command refused before it left, cancelled, dropped or read back
 unchanged, the card shows the value read again at once (Gladys otherwise
-keeps the value typed). After "sent, without confirmation" (the controller
-may have applied it), nothing older is republished, not even after a
-reconnection to Gladys or an edit of the device: the reads 5 and 20
-seconds later settle it. In
-both cases the first read of that setting made after the write (or the
-refusal) publishes it even when unchanged; if it fails too (adapter
-unreachable), the first read that succeeds does, within 10 minutes; never
-after a confirmed success.
+keeps the value typed), unless an earlier command of the same setting is
+still "sent, without confirmation" and that setting was not read since:
+then at the first read. After "sent, without confirmation" (the
+controller may have applied it), no value read before the write is
+republished for up to 10 minutes, not even after a reconnection to
+Gladys, an edit of the device or a later command of the same setting
+refused before its read: the reads 5 and 20 seconds later settle it.
+In both cases the first read of that setting made after the write (or
+the refusal) publishes it even when unchanged; if it fails too (adapter
+unreachable), the first read that succeeds does, within 10 minutes;
+never after a confirmed success.
 
 ## Errors and limits
 

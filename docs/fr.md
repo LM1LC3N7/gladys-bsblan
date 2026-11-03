@@ -305,15 +305,19 @@ récente du même réglage la remplace. Une Protection ou une eau chaude à
 l'arrêt arrivée après elle l'annule (jamais envoyée après une commande de
 protection), un redémarrage de l'intégration aussi. Les commandes de
 protection n'attendent jamais derrière elle. Après une commande refusée
-avant de partir, annulée, abandonnée ou relue inchangée, la carte reprend
-tout de suite la valeur lue (sinon Gladys garde la valeur saisie). Après
-« envoyée, sans confirmation » (le régulateur a pu l'appliquer), rien
-d'ancien n'est republié, même après une reconnexion à Gladys ou une
-modification de l'appareil : les relectures de 5 et 20 secondes tranchent. Dans les deux cas, la
-première lecture de ce réglage faite après l'écriture (ou le refus) le
-publie même inchangé ; si elle échoue aussi (adaptateur injoignable), la
-première lecture réussie le fait, dans les 10 minutes ; jamais après un
-succès confirmé.
+avant de partir, annulée, abandonnée ou relue inchangée, la carte
+reprend tout de suite la valeur lue (sinon Gladys garde la valeur
+saisie), sauf si une commande précédente du même réglage est encore
+« envoyée, sans confirmation » et que ce réglage n'a pas été relu
+depuis : alors à la première lecture. Après « envoyée, sans
+confirmation » (le régulateur a pu l'appliquer), aucune valeur lue avant
+l'écriture n'est republiée pendant 10 minutes au plus, même après une
+reconnexion à Gladys, une modification de l'appareil ou une commande
+suivante du même réglage refusée avant sa lecture : les relectures de 5
+et 20 secondes tranchent. Dans les deux cas, la première lecture de ce
+réglage faite après l'écriture (ou le refus) le publie même inchangé ;
+si elle échoue aussi (adaptateur injoignable), la première lecture
+réussie le fait, dans les 10 minutes ; jamais après un succès confirmé.
 
 ## Erreurs et limites
 

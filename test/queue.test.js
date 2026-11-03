@@ -678,3 +678,194 @@ test('r032 m1: no window of republications: the refusal, the next read of the pa
   assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [20, 20]);
   assert.equal(app.reshow.size, 0);
 });
+
+// r032 r2 I1: an earlier write of the same setting left without confirmation
+// (and was applied); a second command of that setting is refused before its
+// own fresh read: the value in memory dates from before the first write and
+// is never forced; the first read of the parameter after that write is.
+const appliedThen = (bsb, id, override) => (r) => {
+  if (r.endpoint === '/JS' && r.body.Parameter === id) {
+    bsb.params[id] = { ...bsb.params[id], value: r.body.Value };
+    return override;
+  }
+  return undefined;
+};
+
+test('r032 r2 I1 (R1): applied, answered 500 (pause), the same setting again refused "paused": never the value read before', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = appliedThen(bsb, '710', { status: 500 });
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const a = click('heating-setpoint', 21);
+  await advance(4_500);
+  assert.match(a.ack.error, /sans confirmation/);
+  assert.equal(bsb.params[710].value, '21.0', 'applied');
+  const b = click('heating-setpoint', 21);
+  await advance(4_500);
+  assert.match(b.ack.error, /en pause/);
+  bsb.behave = undefined;
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [], 'never 20');
+  assert.equal(app.reshow.size, 1);
+  assert.ok([...app.reshow.values()][0].left, 'the left mark is kept');
+  await advance(4 * 60 * SECOND, 500);
+  assert.deepEqual(
+    statesOf(gladys, 'heating-setpoint').slice(before),
+    [21],
+    '21 at the first read of 710 after the pause',
+  );
+  assert.equal(app.reshow.size, 0);
+});
+
+test('r032 r2 I1 (R2): applied, unanswered, the same setting queued then dropped by a Protection: never the value read before', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = appliedThen(bsb, '710', { delay: 6_000 });
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const a = click('heating-setpoint', 21);
+  for (let i = 0; i < 60 && !a.ack; i += 1) {
+    await advance(100);
+  }
+  assert.match(a.ack.error, /sans confirmation/);
+  const b = click('heating-setpoint', 22);
+  await advance(300);
+  const c = click('mode', 'protection');
+  await advance(2_000);
+  assert.match(b.ack.error, /protection/i);
+  assert.ok(c.ack, 'the Protection answered');
+  assert.equal(bsb.params[710].value, '21.0', 'the first one applied');
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [], 'never 20');
+  bsb.behave = undefined;
+  await advance(60 * SECOND, 500);
+  const after = statesOf(gladys, 'heating-setpoint').slice(before);
+  assert.ok(!after.includes(20), `never 20: ${after}`);
+  assert.equal(after.at(-1), 21, '21 at the first read of 710');
+});
+
+test('r032 r2 I1 (R3, slow adapter): applied, unanswered, the same setting refused before its fresh read: never the value read before', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = appliedNoAnswer(bsb, '710');
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const a = click('heating-setpoint', 21);
+  for (let i = 0; i < 60 && !a.ack; i += 1) {
+    await advance(100);
+  }
+  assert.match(a.ack.error, /sans confirmation/);
+  assert.equal(bsb.params[710].value, '21.0', 'applied');
+  // Let the write and its follow-up end, then slow reads (3 s each): a poll
+  // holds the adapter, the second command cannot read 710 in time.
+  await advance(3 * SECOND);
+  bsb.behave = (r) => (r.endpoint === '/JQ' ? { delay: 3_000 } : undefined);
+  const poll = app.tick();
+  await advance(200);
+  const b = click('heating-setpoint', 22);
+  for (let i = 0; i < 100 && !b.ack; i += 1) {
+    await advance(100);
+  }
+  assert.match(b.ack.error, /non envoyée/);
+  assert.notEqual(bsb.params[710].value, '22', 'never sent');
+  const atRefusal = statesOf(gladys, 'heating-setpoint').slice(before);
+  assert.ok(!atRefusal.includes(20), `never 20 at the refusal: ${atRefusal}`);
+  bsb.behave = undefined;
+  await advance(10 * SECOND);
+  await poll;
+  await advance(60 * SECOND, 500);
+  const after = statesOf(gladys, 'heating-setpoint').slice(before);
+  assert.ok(!after.includes(20), `never 20: ${after}`);
+  assert.equal(after.at(-1), 21, '21 at the first read of 710');
+});
+
+test('r032 r2 I1: the mark guard of showReal ends at the cap (the value in memory is forced again)', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = appliedNoAnswer(bsb, '710');
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const a = click('heating-setpoint', 21);
+  for (let i = 0; i < 60 && !a.ack; i += 1) {
+    await advance(100);
+  }
+  assert.match(a.ack.error, /sans confirmation/);
+  const target = { mac: app.adapter.mac, role: 'heating-setpoint' };
+  assert.equal(app.reshow.size, 1);
+  app.showReal(target);
+  await advance(100);
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [], 'kept within the cap');
+  // The cap reached (no read of 710 for 10 min): the guard ends.
+  const [mark] = app.reshow.values();
+  mark.cap = Date.now();
+  app.showReal(target);
+  await advance(100);
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [20], 'forced at the cap');
+  assert.equal([...app.reshow.values()][0].left, false, 'a new mark, not left');
+});
+
+test('r032 r2 m2: the mark of the reduced setpoint (712) is lifted by the read back of 712', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, gladys, advance, click } = await setup(t, { bsb });
+  // Status 1, but the controller keeps 16.5 (read back neither 16 nor before).
+  bsb.behave = (r) => {
+    if (r.endpoint === '/JS' && r.body.Parameter === '712') {
+      bsb.params[712] = { ...bsb.params[712], value: '16.5' };
+      return { status: 200, body: JSON.stringify({ 712: { status: 1 } }) };
+    }
+    return undefined;
+  };
+  const before = statesOf(gladys, 'heating-reduced-target').length;
+  const a = click('heating-reduced-target', 16);
+  await advance(100);
+  click('dhw-setpoint', 55);
+  await advance(900);
+  assert.match(a.ack.error, /sans confirmation \(not read back\)/);
+  bsb.behave = undefined;
+  // The second command (3 s later) reads 1610.. only: 710 is not read again.
+  await advance(3_000);
+  assert.equal(app.reshow.size, 0, 'lifted by the read back of 712, before the 5 s read');
+  assert.deepEqual(statesOf(gladys, 'heating-reduced-target').slice(before), [16.5, 16.5]);
+});
+
+test('r032 r2 I1: the guard keeps only a left mark: two surely refused commands both show the real value', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = (r) => {
+    if (r.endpoint === '/JS' && r.body.Parameter === '1610') {
+      return { delay: 2_000 };
+    }
+    return ignoring(r);
+  };
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const a = click('heating-setpoint', 22);
+  await advance(SECOND);
+  assert.match(a.ack.error, /encore la précédente/);
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [20]);
+  // Before any read of 710: another one waits behind a slow write, then a
+  // Protection drops it. Surely not applied: the real value again, at once.
+  click('dhw-setpoint', 55);
+  await advance(200);
+  const b = click('heating-setpoint', 23);
+  await advance(300);
+  click('mode', 'protection');
+  await advance(500);
+  assert.match(b.ack.error, /protection/i);
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [20, 20]);
+});
+
+test('r032 r2 I1: once its parameter is read after the write, a refusal of the same setting shows the real value again', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { gladys, advance, click } = await setup(t, { bsb });
+  bsb.behave = appliedNoAnswer(bsb, '710');
+  const before = statesOf(gladys, 'heating-setpoint').length;
+  const a = click('heating-setpoint', 21);
+  for (let i = 0; i < 60 && !a.ack; i += 1) {
+    await advance(100);
+  }
+  assert.match(a.ack.error, /sans confirmation/);
+  bsb.behave = undefined;
+  // Above the comfort maximum: refused after its fresh read (710 = 21, read
+  // after the write): published by that read, then forced again by the refusal.
+  const b = click('heating-setpoint', 35);
+  for (let i = 0; i < 300 && !b.ack; i += 1) {
+    await advance(100);
+  }
+  assert.match(b.ack.error, /entre/);
+  assert.deepEqual(statesOf(gladys, 'heating-setpoint').slice(before), [21, 21]);
+});

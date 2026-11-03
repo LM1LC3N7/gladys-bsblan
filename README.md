@@ -97,13 +97,15 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   setting, the last one wins) and leaves once the first one is over and
   the 3 s after a write have passed, with its own fresh read and every
   check again; a protective command after it, a restart, or 30 s without
-  starting drops it. A command surely not applied (refused before it
-  left, cancelled, read back unchanged) publishes the value read again at
-  once; "sent, without confirmation" republishes nothing older (the
-  follow-up reads settle it). After either, the first read of that
-  setting made after the write (or the refusal) publishes it even
-  unchanged; if the reads fail, the first one that succeeds does (within
-  10 min); never after a confirmed success.
+  starting drops it. A command surely not applied (refused before it left,
+  cancelled, read back unchanged) publishes the value read again at once,
+  unless an earlier command of the same setting is still "sent, without
+  confirmation" and not read since; "sent, without confirmation"
+  republishes no value read before the write (for up to 10 min; the
+  follow-up reads settle it). After either, the first read of that setting
+  made after the write (or the refusal) publishes it even unchanged; if
+  the reads fail, the first one that succeeds does (within 10 min); never
+  after a confirmed success.
 
 ## Credits
 

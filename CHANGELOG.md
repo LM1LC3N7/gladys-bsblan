@@ -31,9 +31,15 @@ the notes of the version's GitHub Release.
 - A command "sent, without confirmation" that the controller did apply
   (21) could have its card set back to the value read before the write
   (20): by the end of a poll that had read it before, by another command
-  sent just after, or by Gladys reconnecting. Nothing older is republished
-  now: the setting waits for a read of its own parameter made after the
-  write, which publishes it even unchanged (review 0.3.2 r1 I1).
+  sent just after, or by Gladys reconnecting. No value read before the
+  write is republished now (for up to 10 minutes): the setting waits for a
+  read of its own parameter made after the write, which publishes it even
+  unchanged (review 0.3.2 r1 I1).
+- The same case, then a second command of the same setting refused before
+  its own read (paused after a 5xx, dropped by a Protection while queued,
+  or the adapter too slow to read it): its refusal forced the value read
+  before the first write onto the card. It now waits for the same first
+  read after the write (review 0.3.2 r2 I1).
 - After a failed command, the setting is no longer republished unchanged
   at every read for 25 s: once at the refusal (when surely not applied)
   and once by the first read of that setting after it (review 0.3.2 r1

@@ -1378,7 +1378,8 @@ export class BsbLanApp {
    * Surely not applied (refused before it left, cancelled, read back
    * unchanged): the card shows the value read again at once (Gladys keeps
    * the value typed otherwise). Maybe applied (sent, without confirmation):
-   * nothing is republished from before the write. Either way, the first
+   * nothing is republished from before the write, not even by a later
+   * command of the same setting refused before its read. Either way, the first
    * read of its parameter after the write (or after the refusal) publishes
    * the feature, equal or not (forgetShown).
    */
@@ -1581,14 +1582,24 @@ export class BsbLanApp {
 
   /**
    * Publishes the real value of the feature again, now (the card leaves the
-   * value typed): surely not applied, the value in memory is the real one.
+   * value typed): surely not applied, the value in memory is the real one,
+   * unless an earlier write of the same setting may have been applied and
+   * was not read since (its `left` mark then stays).
    */
   showReal(target) {
     if (this.stopped) {
       return;
     }
-    this.forgetShown(target);
     const id = this.shownId(target);
+    const mark = this.reshow.get(id);
+    if (mark?.left && mark.cap > this.now() && (this.paramSeqs.get(mark.param) ?? 0) <= mark.seq) {
+      // An earlier write of this setting left without confirmation and its
+      // parameter was not read since: the value in memory dates from before
+      // that write. Its mark stays, nothing is published until that first
+      // read (r032 r2 I1).
+      return;
+    }
+    this.forgetShown(target);
     if (id) {
       // This feature only (no id would forget every feature).
       this.forgetPublished(id);

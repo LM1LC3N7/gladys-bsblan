@@ -376,3 +376,22 @@ up to date at the end of every milestone.
   all killed but M9 (no online check), equivalent as shown in r032 r1: offline, `deviceStates`
   gives no command feature.
 - Reviewer's real-clock scenarios: `r032/q-032.mjs` Q13, Q13b, Q14, Q15 and `r031/q-*.mjs`: all PASS.
+
+## 0.3.2 r3 (review bsblan-xdeco 0.3.2 r2, 9994461: REFUSED, 1 I + 2 m)
+
+- [x] I1 (R1, R2, R3): `showReal` of a second command of the same setting replaced the `left`
+      mark of an earlier unconfirmed write and forced `adapter.values`, read before that write.
+      `showReal` now keeps a `left` mark within its cap while `paramSeqs` of its parameter is
+      still `<= mark.seq`, and publishes nothing: the first read after the write does. Tests
+      (fake clock): R1 (5xx pause, retry "paused"), R2 (queued, dropped by a Protection), R3
+      (slow adapter, refused before its fresh read), the cap ending the guard, a non-`left`
+      mark not guarded, a refusal after a read of the parameter forcing it again.
+- [x] m1: the docs paragraph reflowed (en: no line ending on "In"; fr: about 72 columns).
+- [x] m2: N7 killed by a mark test on 712 (the read back of 712 lifts the mark).
+- Docs, README, CHANGELOG: "nothing older is republished" now reads "no value read before the
+  write is republished (for up to 10 minutes)", with the exception of a second command.
+- Mutants (`_lots/hors-lot/bsblan-xdeco/r032/mutants-032r3.mjs`): N7 and G1–G6 (guard removed,
+  without `left`, without the cap, without the read number, `<`, `>=` on the cap): all killed.
+- Noted (r032 r2, no change): with `poll_interval` 600 s and a failed 5 s read, the next read
+  comes after the 10 min cap, so the forced publication never happens; the docs say "within
+  10 minutes", which stays exact.
