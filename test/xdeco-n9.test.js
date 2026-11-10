@@ -31,7 +31,19 @@ const recorder = (lines) => {
   return { debug: at('debug'), info: at('info'), warn: at('warn'), error: at('error') };
 };
 
-async function setup(t, { bsb = fakeBsbLan({ params: fullParams() }) } = {}) {
+/** The read-only probes of 712 and 1612 that a device created by 0.1.x still has. */
+const legacyProbe = (role) => ({
+  external_id: feature(role),
+  category: 'temperature-sensor',
+  type: 'probe',
+  read_only: true,
+  name: role,
+  unit: 'celsius',
+  min: 0,
+  max: 95,
+});
+
+async function setup(t, { bsb = fakeBsbLan({ params: fullParams() }), legacy = false } = {}) {
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: NOW });
   const lines = [];
   const logger = recorder(lines);
@@ -60,7 +72,10 @@ async function setup(t, { bsb = fakeBsbLan({ params: fullParams() }) } = {}) {
   }
   await connecting;
   for (const d of [...gladys.fake.discoveredDevices]) {
-    await gladys.fake.deviceCreated(d);
+    const extra = legacy
+      ? ['heating-setpoint-reduced', 'dhw-setpoint-reduced'].map(legacyProbe)
+      : [];
+    await gladys.fake.deviceCreated({ ...d, features: [...d.features, ...extra] });
   }
   await advance(2 * SECOND);
   const click = (role, value) => {
@@ -215,6 +230,43 @@ test('n° 9: sending to Gladys failing every second is logged once, then once wh
   assert.deepEqual(lines.slice(3), [['info', 'Sending to Gladys works again']]);
 });
 
+test('r033 m3: a new cause during the same outage is logged once too', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: NOW });
+  const lines = [];
+  let cause = 'fetch failed';
+  const gladys = {
+    publishChangedStates: async (batch) => {
+      if (cause) {
+        throw new Error(cause);
+      }
+      return { count: batch.length };
+    },
+  };
+  const publisher = new StatePublisher({ gladys, logger: recorder(lines), now: () => Date.now() });
+  t.after(() => publisher.stop());
+  publisher.start();
+  const seconds = async (n) => {
+    for (let i = 0; i < n; i += 1) {
+      t.mock.timers.tick(SECOND);
+      await settle();
+    }
+  };
+  publisher.push('a', { state: 1 });
+  await seconds(20);
+  cause = 'Request failed with status 422';
+  await seconds(20);
+  cause = undefined;
+  await seconds(3);
+  assert.deepEqual(
+    lines.map(([level, line]) => [level, line.replace(/ \(retried.*$/, '')]),
+    [
+      ['warn', 'Sending to Gladys failed: fetch failed'],
+      ['warn', 'Sending to Gladys failed: Request failed with status 422'],
+      ['info', 'Sending to Gladys works again'],
+    ],
+  );
+});
+
 test('n° 9: Gladys unreachable during an update: the app logs the failure once, then the return', async (t) => {
   const { gladys, app, advance, lines } = await setup(t);
   const publish = gladys.publishChangedStates.bind(gladys);
@@ -315,3 +367,119 @@ test('r032-r3 m2: offline, the twin still shows that BSB-LAN is unreachable', as
   await advance(2 * MINUTE, 1000);
   assert.match(String(gladys.fake.lastState(feature('operating-mode'))), /injoignable/);
 });
+
+// --- r033 m1: the protective paths stay warnings ----------------------------------------
+
+test('r033 m1: a waiting command dropped by a Protection is a warning, never "replaced"', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { advance, click, waitAck, lines } = await setup(t, { bsb });
+  bsb.behave = (r) =>
+    r.endpoint === '/JS' && r.body.Parameter === '710' ? { delay: 2_800 } : undefined;
+  click('heating-setpoint', 21);
+  await settle();
+  const waiting = click('hc2-setpoint', 19);
+  await advance(200);
+  const stop = click('mode', 'protection');
+  await waitAck(waiting);
+  await waitAck(stop);
+  await advance(10 * SECOND);
+  assert.match(waiting.ack.error, /protection/i);
+  const logged = about(lines, 'hc2-setpoint');
+  assert.ok(!logged.some(([, l]) => REPLACED.test(l)), JSON.stringify(logged));
+  const ends = logged.filter(([, l]) => /protection/i.test(l));
+  assert.deepEqual(
+    ends.map(([level]) => level),
+    ['warn'],
+    JSON.stringify(logged),
+  );
+});
+
+/** A poll request that holds the adapter 5 s (BSB-LAN serves one client at a time). */
+const busyPoll = (r) => (r.endpoint === '/JQ' && r.ids[0] === '700' ? { delay: 5_000 } : undefined);
+
+test('r033 m1: a Protection queued behind a busy adapter answers with a warning', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, advance, click, waitAck, lines } = await setup(t, { bsb });
+  bsb.behave = busyPoll;
+  const poll = app.tick();
+  await advance(200);
+  const stop = click('dhw-mode-select', 'off');
+  await waitAck(stop);
+  assert.match(stop.ack.error, /passe en tête/);
+  const answered = about(lines, 'dhw-mode-select').filter(([, l]) => /passe en tête/.test(l));
+  assert.deepEqual(
+    answered.map(([level]) => level),
+    ['warn'],
+    JSON.stringify(lines),
+  );
+  bsb.behave = undefined;
+  await advance(10 * SECOND);
+  await poll;
+});
+
+test('r033 m1: the late outcome of a queued Protection that fails is a warning', async (t) => {
+  const bsb = fakeBsbLan({ params: fullParams() });
+  const { app, advance, click, waitAck, lines } = await setup(t, { bsb });
+  bsb.behave = (r) => {
+    if (r.endpoint === '/JS') {
+      // BSB-LAN refuses it once it is free: status 2.
+      return { status: 200, body: JSON.stringify({ [r.body.Parameter]: { status: 2 } }) };
+    }
+    return busyPoll(r);
+  };
+  const poll = app.tick();
+  await advance(200);
+  const stop = click('dhw-mode-select', 'off');
+  await waitAck(stop);
+  assert.match(stop.ack.error, /passe en tête/);
+  await advance(10 * SECOND);
+  await poll;
+  const late = lines.filter(([, l]) => /BSB-LAN dhw-mode-select off \(queued\)/.test(l));
+  assert.deepEqual(
+    late.map(([level]) => level),
+    ['warn'],
+    JSON.stringify(lines),
+  );
+});
+
+// --- r033 m2: every twin of TWINS is held with its setting -----------------------------
+
+const TWIN_CASES = [
+  ['mode', 'reduced', '700', 'operating-mode'],
+  ['hc2-mode', 'reduced', '1000', 'hc2-operating-mode'],
+  ['dhw-mode-select', 'eco', '1600', 'dhw-mode'],
+  ['heating-reduced-target', 16, '712', 'heating-setpoint-reduced'],
+  ['dhw-reduced-target', 35, '1612', 'dhw-setpoint-reduced'],
+];
+
+for (const [role, value, id, twin] of TWIN_CASES) {
+  test(`r033 m2: the twin ${twin} of ${role} is never republished with the value read before the write`, async (t) => {
+    const bsb = fakeBsbLan({ params: fullParams() });
+    const { app, gladys, advance, click, waitAck } = await setup(t, { bsb, legacy: true });
+    const start = gladys.fake.lastState(feature(twin));
+    assert.notEqual(start, undefined, `${twin} published before`);
+    // Applied, answered with status 0: "sent, without confirmation", no read back.
+    bsb.behave = (r) => {
+      if (r.endpoint === '/JS' && r.body.Parameter === id) {
+        bsb.params[id] = { ...bsb.params[id], value: String(r.body.Value) };
+        return status0(r);
+      }
+      return undefined;
+    };
+    const before = statesOf(gladys, twin).length;
+    const a = click(role, value);
+    await waitAck(a);
+    assert.match(a.ack.error, /sans confirmation \(no status 1\)/);
+    bsb.behave = undefined;
+    const d = gladys.fake.devices.find((x) => x.external_id === device);
+    await gladys.fake.deviceUpdated(d);
+    await advance(1_500);
+    assert.deepEqual(statesOf(gladys, twin).slice(before), [], 'nothing read before the write');
+    assert.equal(app.reshow.size, 1);
+    // The follow-up read publishes the new value on the twin.
+    await advance(10 * SECOND);
+    const after = statesOf(gladys, twin).slice(before);
+    assert.equal(after.length, 1, JSON.stringify(after));
+    assert.notEqual(after[0], start);
+  });
+}

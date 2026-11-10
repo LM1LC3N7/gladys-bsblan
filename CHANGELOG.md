@@ -17,8 +17,9 @@ the notes of the version's GitHub Release.
   information lines, each with its own text, instead of warnings; the other
   refusals stay warnings.
 - "Sending to Gladys failed" is logged once while Gladys cannot be reached
-  (it was logged every second during an update of Gladys), then "Sending to
-  Gladys works again" (forum t/11458 n° 9).
+  (it was logged every second during an update of Gladys), once more when
+  the cause changes, then "Sending to Gladys works again" (forum t/11458
+  n° 9, review bsblan-033-r1 m3).
 
 ### Fixed
 
@@ -33,7 +34,8 @@ the notes of the version's GitHub Release.
 - Docs: the paragraph on the card after a command split into shorter
   sentences; "the reads 5 and 20 seconds later settle it" was not true
   during a pause (review bsblan-032-r3 m3). The fixed limits of the
-  sliders and the UTC times of the logs explained.
+  sliders and the UTC times of the logs explained; the hold lasts until 10
+  minutes after the last command of the setting (review bsblan-033-r1 m4).
 
 ## [0.3.2] - 2026-11-03
 

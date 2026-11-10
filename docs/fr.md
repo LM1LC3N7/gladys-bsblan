@@ -320,7 +320,8 @@ réglage est encore « envoyée, sans confirmation » et ce réglage n'a pas
 été relu depuis ; la carte attend alors la première lecture.
 
 Après « envoyée, sans confirmation », le régulateur a pu appliquer la
-valeur. Pendant 10 minutes au plus, aucune valeur lue avant l'écriture
+valeur. Jusqu'à 10 minutes après la dernière commande de ce réglage
+(l'écriture, ou une suivante refusée), aucune valeur lue avant l'écriture
 n'est republiée sur ce réglage ni sur les fonctionnalités en lecture
 seule qui montrent le même paramètre (le mode en texte, les anciennes
 consignes réduites). Cela vaut après une reconnexion à Gladys, une
@@ -337,7 +338,8 @@ Dans les journaux, une commande qui attend derrière une autre et une
 commande en attente remplacée par une valeur plus récente sont des
 lignes d'information, chacune avec son texte ; les autres refus sont des
 avertissements. Quand Gladys est injoignable (mise à jour, redémarrage),
-« Sending to Gladys failed » n'est écrit qu'une fois, puis « Sending to
+« Sending to Gladys failed » n'est écrit qu'une fois (une de plus si la
+cause change), puis « Sending to
 Gladys works again ». Les heures des lignes sont en UTC (le `Z` final),
 comme les écrit le journal du SDK des intégrations Gladys.
 

@@ -296,7 +296,8 @@ setting is still "sent, without confirmation" and that setting was not
 read since; then the card waits for the first read.
 
 After "sent, without confirmation", the controller may have applied the
-value. For up to 10 minutes, no value read before the write is
+value. Until 10 minutes after the last command of that setting (the
+write, or a later one refused), no value read before the write is
 republished on that setting nor on the read-only features showing the
 same parameter (the mode as text, the old reduced setpoints). This holds
 after a reconnection to Gladys, an edit of the device, or a later command
@@ -312,7 +313,8 @@ the last refusal; never after a confirmed success.
 In the logs, a command waiting behind another one and a waiting command
 replaced by a newer value are information lines, each with its own text;
 the other refusals are warnings. When Gladys cannot be reached (an
-update, a restart), "Sending to Gladys failed" is logged once, then
+update, a restart), "Sending to Gladys failed" is logged once (once more
+if the cause changes), then
 "Sending to Gladys works again". The times of the log lines are in UTC
 (the `Z` at the end), as the logger of the Gladys integration SDK writes them.
 

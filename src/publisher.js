@@ -3,7 +3,7 @@
 // the current value of a feature (the last one wins); unchanged values are
 // skipped by publishChangedStates and sent again every 30 min. Whatever is
 // left over (budget spent, Gladys unreachable) waits for the next flush, every
-// second; a failure is logged once, then once more when sending works again.
+// second; a failure is logged once per cause, then once when sending works again.
 // Never energy consumption: this integration publishes no index.
 // -----------------------------------------------------------------------------
 
@@ -20,7 +20,7 @@ export class StatePublisher {
     this.window = [];
     this.timer = undefined;
     this.flushing = undefined;
-    /** Sending to Gladys failed and has not worked since (logged once). */
+    /** The cause of the failure to send to Gladys, logged once, until it works again. */
     this.failing = false;
   }
 
@@ -88,8 +88,9 @@ export class StatePublisher {
         this.logger?.info('Sending to Gladys works again');
       }
     } catch (err) {
-      if (!this.failing) {
-        this.failing = true;
+      // Once per outage, and once more for each new cause (fetch failed, then a 422).
+      if (this.failing !== err.message) {
+        this.failing = err.message;
         this.logger?.warn(
           `Sending to Gladys failed: ${err.message} (retried every second, logged once)`,
         );

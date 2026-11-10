@@ -5,6 +5,10 @@
 // RAM cap and a deadline that kills the whole process group:
 //
 //   node scripts/mutants.mjs [names...]
+//   MUTANTS_REPO=<another clone> node scripts/mutants.mjs   (default: this repository)
+//
+// The unmodified suite runs first in the copy: red, the run stops ("baseline
+// FAILED", exit 1) and no mutant is judged (review bsblan-033-r1 I1).
 //
 // Needs `memcap`, `setsid` and `timeout` (the dev VM). Not in the image.
 // -----------------------------------------------------------------------------
@@ -12,10 +16,12 @@
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const repo = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const repo = resolve(
+  process.env.MUTANTS_REPO ?? join(dirname(fileURLToPath(import.meta.url)), '..'),
+);
 const only = process.argv.slice(2);
 
 const GUARD = '      mark.cap = Math.max(mark.cap, this.now() + TIMINGS.reshowMax);\n';
@@ -67,8 +73,8 @@ const MUTANTS = [
   [
     'P1-every-failure-logged',
     'src/publisher.js',
-    '      if (!this.failing) {\n        this.failing = true;',
-    '      if (true) {\n        this.failing = true;',
+    '      if (this.failing !== err.message) {\n        this.failing = err.message;',
+    '      if (true) {\n        this.failing = err.message;',
   ],
   [
     'P2-no-return-line',
@@ -80,7 +86,7 @@ const MUTANTS = [
     'P3-failing-never-reset',
     'src/publisher.js',
     '      if (this.failing) {\n        this.failing = false;',
-    '      if (this.failing) {\n        this.failing = true;',
+    '      if (this.failing) {\n        this.failing = this.failing;',
   ],
   [
     'P4-interval-logs-again',
@@ -112,6 +118,47 @@ const MUTANTS = [
   ],
   ['T3-twins-held-after-read', 'src/app.js', HELD, '        if (online && mark.left) {'],
   ['T4-mode-without-twin', 'src/app.js', '  [F.MODE]: [F.MODE_STATE],\n', ''],
+  // Review bsblan-033-r1 m2 (its R7-R9): every twin pinned.
+  ['T5-no-hc2-twin', 'src/app.js', '  [F.HC2_MODE]: [F.HC2_MODE_STATE],\n', ''],
+  ['T6-no-dhw-twin', 'src/app.js', '  [F.DHW_MODE_SELECT]: [F.DHW_MODE],\n', ''],
+  [
+    'T7-no-legacy-712-twin',
+    'src/app.js',
+    '  [F.HEATING_REDUCED_TARGET]: [F.HEATING_SETPOINT_REDUCED],\n',
+    '',
+  ],
+  [
+    'T8-no-legacy-1612-twin',
+    'src/app.js',
+    '  [F.DHW_REDUCED_TARGET]: [F.DHW_SETPOINT_REDUCED],\n',
+    '',
+  ],
+  // Review bsblan-033-r1 m1 (its R1, R2, R4): protective paths stay warnings.
+  [
+    'W1-drop-by-protective-as-replaced',
+    'src/app.js',
+    '    for (const entry of this.waiting.values()) {\n      entry.reject(this.refusal(text));',
+    '    for (const entry of this.waiting.values()) {\n      entry.reject(Object.assign(this.refusal(text), { notice: NOTICES.replaced }));',
+  ],
+  [
+    'W2-protective-queued-as-debug',
+    'src/app.js',
+    '      const queued = this.refusal(ERRORS.protectiveQueued);\n      queued.pending = true;',
+    "      const queued = this.refusal(ERRORS.protectiveQueued);\n      queued.pending = true;\n      queued.notice = 'queued';",
+  ],
+  [
+    'W3-protective-late-outcome-info',
+    'src/app.js',
+    '        this.logger.warn(`BSB-LAN ${role} ${wanted.value} (queued): ${err.message}`);',
+    '        this.logger.info(`BSB-LAN ${role} ${wanted.value} (queued): ${err.message}`);',
+  ],
+  // Review bsblan-033-r1 m3: a new cause during the same outage is logged.
+  [
+    'P6-new-cause-hidden',
+    'src/publisher.js',
+    '      if (this.failing !== err.message) {',
+    '      if (!this.failing) {',
+  ],
 ];
 
 function apply(file, from, to) {
@@ -126,13 +173,41 @@ function apply(file, from, to) {
   );
 }
 
+/** The whole suite in `cwd`, its process group killed at the deadline. */
+function suite(cwd) {
+  const started = Date.now();
+  const run = spawnSync(
+    'setsid',
+    ['memcap', '-m', '3G', 'timeout', '-k', '5', '300', 'node', '--test', '--test-timeout=60000'],
+    { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+  );
+  const out = `${run.stdout}${run.stderr}`;
+  return {
+    status: run.status,
+    failed: /ℹ fail (\d+)/.exec(out)?.[1],
+    hung: run.status === 124 || run.status === 137,
+    seconds: Math.round((Date.now() - started) / 1000),
+  };
+}
+
 // A private copy (node_modules copied, never linked), removed at the end.
+// Only `.git` itself is left out (`.github` holds the release script a test imports).
+const git = join(repo, '.git');
 const work = mkdtempSync(join(tmpdir(), 'bsblan-mutants-'));
 let survivors = 0;
 try {
   const copy = join(work, 'repo');
-  cpSync(repo, copy, { recursive: true, filter: (src) => !src.includes(`${repo}/.git`) });
-  for (const [name, file, from, to] of MUTANTS) {
+  cpSync(repo, copy, {
+    recursive: true,
+    filter: (src) => src !== git && !src.startsWith(`${git}${sep}`),
+  });
+  const base = suite(copy);
+  console.log(`baseline: exit ${base.status}, fail ${base.failed}, ${base.seconds} s`);
+  if (base.status !== 0 || base.failed !== '0') {
+    console.log('baseline FAILED: the unmodified suite is red, no mutant judged');
+    survivors = Infinity;
+  }
+  for (const [name, file, from, to] of survivors === 0 ? MUTANTS : []) {
     if (only.length > 0 && !only.includes(name)) {
       continue;
     }
@@ -141,32 +216,13 @@ try {
     let line;
     try {
       apply(path, from, to);
-      const started = Date.now();
-      const run = spawnSync(
-        'setsid',
-        [
-          'memcap',
-          '-m',
-          '3G',
-          'timeout',
-          '-k',
-          '5',
-          '300',
-          'node',
-          '--test',
-          '--test-timeout=60000',
-        ],
-        { cwd: copy, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
-      );
-      const out = `${run.stdout}${run.stderr}`;
-      const failed = /ℹ fail (\d+)/.exec(out)?.[1];
-      const hung = run.status === 124 || run.status === 137;
-      const killed = !hung && failed !== undefined && failed !== '0';
+      const run = suite(copy);
+      const killed = !run.hung && run.failed !== undefined && run.failed !== '0';
       if (!killed) {
         survivors += 1;
       }
-      const verdict = hung ? `HUNG(${run.status})` : killed ? 'KILLED' : 'SURVIVED';
-      line = `${name}: ${verdict} (fail ${failed}, ${Math.round((Date.now() - started) / 1000)} s)`;
+      const verdict = run.hung ? `HUNG(${run.status})` : killed ? 'KILLED' : 'SURVIVED';
+      line = `${name}: ${verdict} (fail ${run.failed}, ${run.seconds} s)`;
     } catch (err) {
       survivors += 1;
       line = `${name}: ERROR ${err.message}`;

@@ -424,3 +424,16 @@ up to date at the end of every milestone.
 - Not changed: the UTC times are the SDK logger's (`[${new Date().toISOString()}]`, lib/logger.js),
   not ours. Docs say so.
 - Mutants: `scripts/mutants.mjs` (in the repository, not in the image).
+
+## 0.3.3 r2 (review bsblan-033-r1, 0d10504: REFUSED, 1 I + 4 m; release: patch 0.3.3)
+
+- [x] I1: the runner's copy dropped `.github` (`includes('/.git')`), so `test/release.test.js` was red
+      in every pass and every mutant read KILLED. Now only `.git` itself is left out, the unmodified
+      suite runs first ("baseline FAILED", exit 1, no mutant judged), `MUTANTS_REPO` points it at
+      another clone. Proved with a copy holding a red test: exit 1.
+- [x] m1: tests for the protective log levels (dropped by a Protection: warn, never "replaced"; queued
+      behind a busy adapter: warn; its late failure: warn). Mutants W1-W3 (reviewer R1, R2, R4).
+- [x] m2: S10 run on every entry of `TWINS` (legacy probes added to the created device). T5-T8.
+- [x] m3: the publisher keeps the cause (`failing` = the message): a new cause during one outage is
+      logged once more. Test, mutant P6.
+- [x] m4: docs and README: until 10 minutes after the last command of the setting.
