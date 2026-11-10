@@ -10,6 +10,31 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Changed
+
+- Logs (forum t/11458 n° 9): a command waiting behind another one and a
+  waiting command replaced by a newer value of the same setting are now
+  information lines, each with its own text, instead of warnings; the other
+  refusals stay warnings.
+- "Sending to Gladys failed" is logged once while Gladys cannot be reached
+  (it was logged every second during an update of Gladys), then "Sending to
+  Gladys works again" (forum t/11458 n° 9).
+
+### Fixed
+
+- A value refused while an earlier write of the same setting was still
+  "sent, without confirmation" now gets its own 10 minutes to be corrected
+  by a read, instead of what was left of the earlier write's (review
+  bsblan-032-r3 m1).
+- The read-only features showing the same parameter as a setting (the mode
+  as text, the old reduced setpoints) are no longer republished with the
+  value read before a write "sent, without confirmation", after a
+  reconnection to Gladys or an edit of the device (review bsblan-032-r3 m2).
+- Docs: the paragraph on the card after a command split into shorter
+  sentences; "the reads 5 and 20 seconds later settle it" was not true
+  during a pause (review bsblan-032-r3 m3). The fixed limits of the
+  sliders and the UTC times of the logs explained.
+
 ## [0.3.2] - 2026-11-03
 
 ### Changed

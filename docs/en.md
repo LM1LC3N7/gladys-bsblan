@@ -159,6 +159,12 @@ may change:
   to the lowest of the hot water setpoint (1610), the maximum (1614), the
   ceiling and 65 °C.
 
+The sliders of the cards keep the fixed limits (5–35 °C, 10–65 °C): Gladys
+does not let an integration change the limits of a feature already created,
+and the range of the controller moves (the low bound of a comfort setpoint
+follows the reduced one). A value outside the range read just before is
+refused with that range, and the card goes back to the real value.
+
 ### Protection and hot water Off: never held back
 
 The **Protection (frost protection)** mode of circuits 1 and 2 and the hot
@@ -285,17 +291,30 @@ it drops it (never sent after a protective command), and so does a
 restart of the integration. Protective commands never wait behind it.
 After a command refused before it left, cancelled, dropped or read back
 unchanged, the card shows the value read again at once (Gladys otherwise
-keeps the value typed), unless an earlier command of the same setting is
-still "sent, without confirmation" and that setting was not read since:
-then at the first read. After "sent, without confirmation" (the
-controller may have applied it), no value read before the write is
-republished for up to 10 minutes, not even after a reconnection to
-Gladys, an edit of the device or a later command of the same setting
-refused before its read: the reads 5 and 20 seconds later settle it.
+keeps the value typed). The exception: an earlier command of the same
+setting is still "sent, without confirmation" and that setting was not
+read since; then the card waits for the first read.
+
+After "sent, without confirmation", the controller may have applied the
+value. For up to 10 minutes, no value read before the write is
+republished on that setting nor on the read-only features showing the
+same parameter (the mode as text, the old reduced setpoints). This holds
+after a reconnection to Gladys, an edit of the device, or a later command
+of the same setting refused before its read. The next read of that
+setting settles it: 5 and 20 seconds later, or the first one after a
+pause.
+
 In both cases the first read of that setting made after the write (or
-the refusal) publishes it even when unchanged; if it fails too (adapter
-unreachable), the first read that succeeds does, within 10 minutes;
-never after a confirmed success.
+the refusal) publishes it even when unchanged. If it fails too (adapter
+unreachable), the first read that succeeds does, within 10 minutes of
+the last refusal; never after a confirmed success.
+
+In the logs, a command waiting behind another one and a waiting command
+replaced by a newer value are information lines, each with its own text;
+the other refusals are warnings. When Gladys cannot be reached (an
+update, a restart), "Sending to Gladys failed" is logged once, then
+"Sending to Gladys works again". The times of the log lines are in UTC
+(the `Z` at the end), as the logger of the Gladys integration SDK writes them.
 
 ## Errors and limits
 

@@ -3,7 +3,8 @@
 // the current value of a feature (the last one wins); unchanged values are
 // skipped by publishChangedStates and sent again every 30 min. Whatever is
 // left over (budget spent, Gladys unreachable) waits for the next flush, every
-// second. Never energy consumption: this integration publishes no index.
+// second; a failure is logged once, then once more when sending works again.
+// Never energy consumption: this integration publishes no index.
 // -----------------------------------------------------------------------------
 
 import { LIMITS, MINUTE, TIMINGS } from './constants.js';
@@ -19,12 +20,15 @@ export class StatePublisher {
     this.window = [];
     this.timer = undefined;
     this.flushing = undefined;
+    /** Sending to Gladys failed and has not worked since (logged once). */
+    this.failing = false;
   }
 
   start() {
     this.stop();
     this.timer = this.timers.setInterval(() => {
-      this.flush().catch((err) => this.logger.warn(`Sending to Gladys failed: ${err.message}`));
+      // Logged by send(): once per outage (XDECO n° 9), not every second.
+      this.flush().catch(() => {});
     }, TIMINGS.flushInterval);
   }
 
@@ -79,7 +83,17 @@ export class StatePublisher {
       for (let i = 0; i < (result?.count ?? batch.length); i += 1) {
         this.window.push(now);
       }
+      if (this.failing) {
+        this.failing = false;
+        this.logger?.info('Sending to Gladys works again');
+      }
     } catch (err) {
+      if (!this.failing) {
+        this.failing = true;
+        this.logger?.warn(
+          `Sending to Gladys failed: ${err.message} (retried every second, logged once)`,
+        );
+      }
       // Kept for the next round, unless a newer value arrived meanwhile.
       for (const { device_feature_external_id: id, ...value } of batch) {
         if (!this.pending.has(id)) {

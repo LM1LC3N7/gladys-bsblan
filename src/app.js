@@ -78,6 +78,7 @@ import {
 } from './params.js';
 import { BsbClient, departedOf } from './bsblan/client.js';
 import { BsbError, CODES, isAuthRefused, isBusy, reasonOf } from './bsblan/errors.js';
+import { NOTICES, logOutcome, noticeLine } from './notices.js';
 import { StatePublisher } from './publisher.js';
 import { memoryStore, normalizeMemory, serializeMemory } from './store.js';
 
@@ -158,6 +159,19 @@ const COMMANDS = {
     reduced: true,
     read: [P.DHW_NOMINAL, P.DHW_REDUCED, P.DHW_NOMINAL_MAX],
   },
+};
+
+/**
+ * The read-only features showing the parameter of a command too (its "twins"):
+ * held with it while a write that may have been applied was not read back
+ * (r032-r3 m2), so no value read before the write comes back on them either.
+ */
+const TWINS = {
+  [F.MODE]: [F.MODE_STATE],
+  [F.HC2_MODE]: [F.HC2_MODE_STATE],
+  [F.DHW_MODE_SELECT]: [F.DHW_MODE],
+  [F.HEATING_REDUCED_TARGET]: [F.HEATING_SETPOINT_REDUCED],
+  [F.DHW_REDUCED_TARGET]: [F.DHW_SETPOINT_REDUCED],
 };
 
 /** The decoded values a read of one parameter gives (to refresh after a command's read). */
@@ -1023,9 +1037,8 @@ export class BsbLanApp {
   }
 
   async flush() {
-    await this.publisher
-      .flush()
-      .catch((err) => this.logger.warn(`Sending to Gladys failed: ${err.message}`));
+    // A failure is logged by the publisher, once per outage.
+    await this.publisher.flush().catch(() => {});
   }
 
   /**
@@ -1086,6 +1099,16 @@ export class BsbLanApp {
       }
       const ids = deviceIds(this.gladys, mac);
       const online = status === 'online';
+      // The twins of a write that may have been applied and was not read
+      // since (offline, the only state is the text of the status: shown).
+      const held = new Set();
+      for (const mark of this.reshow.values()) {
+        if (online && mark.left && (this.paramSeqs.get(mark.param) ?? 0) <= mark.seq) {
+          for (const twin of mark.twins ?? []) {
+            held.add(twin);
+          }
+        }
+      }
       const states = deviceStates(ids, online ? this.adapter.values : {}, {
         status,
         bus: online ? this.adapter.info.bus : undefined,
@@ -1093,7 +1116,7 @@ export class BsbLanApp {
         extraKinds: this.extraKinds(mac),
       });
       for (const { device_feature_external_id: id, ...value } of states) {
-        if (created.has(id)) {
+        if (created.has(id) && !held.has(id)) {
           const mark = this.reshow.get(id);
           if (mark) {
             if (online && (this.paramSeqs.get(mark.param) ?? 0) > mark.seq) {
@@ -1439,6 +1462,8 @@ export class BsbLanApp {
       const replaced = this.refusal(ERRORS.queuedReplaced);
       // The newer one settles the card: nothing republished for this one.
       replaced.pending = true;
+      // Normal operation, logged as info (XDECO n° 9).
+      replaced.notice = NOTICES.replaced;
       previous.reject(replaced);
     }
     const entry = {
@@ -1455,6 +1480,8 @@ export class BsbLanApp {
     });
     entry.promise.catch(() => {});
     this.waiting.set(key, entry);
+    // Normal operation, logged as info (XDECO n° 9).
+    this.logger.info(`BSB-LAN ${target.role} ${wanted.value} ${noticeLine(NOTICES.queued)}`);
     this.scheduleQueue();
     let handle;
     const late = new Promise((resolve) => {
@@ -1474,11 +1501,17 @@ export class BsbLanApp {
     if (first === 'late') {
       // Answered now; its outcome later: the card shows the real value if it fails.
       entry.promise.catch((err) => {
-        this.logger.warn(`BSB-LAN ${target.role} ${wanted.value} (queued): ${err.message}`);
+        logOutcome(
+          this.logger,
+          `BSB-LAN ${target.role} ${wanted.value} (queued)`,
+          err,
+          `BSB-LAN ${target.role} ${wanted.value} (queued)`,
+        );
         this.afterFailure(target, err);
       });
       const err = this.refusal(ERRORS.queued);
       err.pending = true;
+      err.notice = NOTICES.queued;
       throw err;
     }
     return entry.promise;
@@ -1570,6 +1603,7 @@ export class BsbLanApp {
    * republications (r032 m1).
    */
   forgetShown(target, { seq = this.readSeq, left = false } = {}) {
+    const ids = deviceIds(this.gladys, target.mac);
     this.reshow.set(this.shownId(target), {
       cap: this.now() + TIMINGS.reshowMax,
       seq,
@@ -1577,6 +1611,8 @@ export class BsbLanApp {
       // Sent, maybe applied: nothing of this feature published until then.
       left,
       read: false,
+      // Held too while `left` (r032-r3 m2).
+      twins: (TWINS[target.role] ?? []).map((role) => ids.feature(role)),
     });
   }
 
@@ -1596,7 +1632,8 @@ export class BsbLanApp {
       // An earlier write of this setting left without confirmation and its
       // parameter was not read since: the value in memory dates from before
       // that write. Its mark stays, nothing is published until that first
-      // read (r032 r2 I1).
+      // read (r032 r2 I1). This refusal gets its own 10 minutes (r032-r3 m1).
+      mark.cap = Math.max(mark.cap, this.now() + TIMINGS.reshowMax);
       return;
     }
     this.forgetShown(target);

@@ -169,6 +169,13 @@ bas). Activée, Gladys peut changer :
   jusqu'à la plus basse de la consigne d'eau chaude (1610), du maximum
   (1614), du plafond et de 65 °C.
 
+Les curseurs des cartes gardent les limites fixes (5 à 35 °C, 10 à 65 °C) :
+Gladys ne permet pas à une intégration de changer les limites d'une
+fonctionnalité déjà créée, et la plage du régulateur bouge (la borne basse
+d'une consigne confort suit la consigne réduite). Une valeur hors de la
+plage lue juste avant est refusée avec cette plage, et la carte reprend la
+valeur réelle.
+
 ### Protection et eau chaude à l'arrêt : jamais bloquées
 
 Le mode **Protection (hors-gel)** des circuits 1 et 2 et le mode **Arrêt** de
@@ -304,20 +311,35 @@ abandonnée, non envoyée. Une seule attend par réglage : une valeur plus
 récente du même réglage la remplace. Une Protection ou une eau chaude à
 l'arrêt arrivée après elle l'annule (jamais envoyée après une commande de
 protection), un redémarrage de l'intégration aussi. Les commandes de
-protection n'attendent jamais derrière elle. Après une commande refusée
-avant de partir, annulée, abandonnée ou relue inchangée, la carte
-reprend tout de suite la valeur lue (sinon Gladys garde la valeur
-saisie), sauf si une commande précédente du même réglage est encore
-« envoyée, sans confirmation » et que ce réglage n'a pas été relu
-depuis : alors à la première lecture. Après « envoyée, sans
-confirmation » (le régulateur a pu l'appliquer), aucune valeur lue avant
-l'écriture n'est republiée pendant 10 minutes au plus, même après une
-reconnexion à Gladys, une modification de l'appareil ou une commande
-suivante du même réglage refusée avant sa lecture : les relectures de 5
-et 20 secondes tranchent. Dans les deux cas, la première lecture de ce
-réglage faite après l'écriture (ou le refus) le publie même inchangé ;
-si elle échoue aussi (adaptateur injoignable), la première lecture
-réussie le fait, dans les 10 minutes ; jamais après un succès confirmé.
+protection n'attendent jamais derrière elle.
+
+Après une commande refusée avant de partir, annulée, abandonnée ou relue
+inchangée, la carte reprend tout de suite la valeur lue (sinon Gladys
+garde la valeur saisie). Une exception : une commande précédente du même
+réglage est encore « envoyée, sans confirmation » et ce réglage n'a pas
+été relu depuis ; la carte attend alors la première lecture.
+
+Après « envoyée, sans confirmation », le régulateur a pu appliquer la
+valeur. Pendant 10 minutes au plus, aucune valeur lue avant l'écriture
+n'est republiée sur ce réglage ni sur les fonctionnalités en lecture
+seule qui montrent le même paramètre (le mode en texte, les anciennes
+consignes réduites). Cela vaut après une reconnexion à Gladys, une
+modification de l'appareil, ou une commande suivante du même réglage
+refusée avant sa lecture. La lecture suivante de ce réglage tranche :
+5 et 20 secondes plus tard, ou la première après une pause.
+
+Dans les deux cas, la première lecture de ce réglage faite après
+l'écriture (ou le refus) le publie même inchangé. Si elle échoue aussi
+(adaptateur injoignable), la première lecture réussie le fait, dans les
+10 minutes qui suivent le dernier refus ; jamais après un succès confirmé.
+
+Dans les journaux, une commande qui attend derrière une autre et une
+commande en attente remplacée par une valeur plus récente sont des
+lignes d'information, chacune avec son texte ; les autres refus sont des
+avertissements. Quand Gladys est injoignable (mise à jour, redémarrage),
+« Sending to Gladys failed » n'est écrit qu'une fois, puis « Sending to
+Gladys works again ». Les heures des lignes sont en UTC (le `Z` final),
+comme les écrit le journal du SDK des intégrations Gladys.
 
 ## Erreurs et limites
 

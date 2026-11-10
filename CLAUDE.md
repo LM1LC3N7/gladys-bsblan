@@ -48,7 +48,8 @@ src/bsblan/errors.js         BsbError codes, auth/busy helpers
 src/params.js                parameter map, decoding, modes (python-bsblan)
 src/devices.js               -> the Gladys device and its states (pure), kept features
 src/store.js                 /data/bsblan-state.json: pause, stop, kept stops, bounded, no secret
-src/publisher.js             states within 300/min
+src/publisher.js             states within 300/min, a failure to send logged once per outage
+src/notices.js               command outcomes in the log (waiting / replaced: info)
 src/config.js                config_schema normalized (address, passkey, username,
                              password, allow_commands, dhw_max_temperature,
                              poll_interval, language)
@@ -56,6 +57,7 @@ src/constants.js             feature roles, limits, timings, the hot water ceili
 src/i18n.js                  runtime texts, feature and mode names (en/fr)
 test/fixtures/fakeBsbLan.js  the fake adapter behind the transport; Gladys is the SDK's fake
 scripts/cover.mjs            cover.png generator
+scripts/mutants.mjs          mutants of the fixes, run one at a time in a private copy
 ```
 
 ## Rules

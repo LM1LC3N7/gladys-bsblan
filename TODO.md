@@ -398,7 +398,29 @@ up to date at the end of every milestone.
 
 ## Next patch (review bsblan-032-r3, minors)
 
-- [ ] m1: a value refused under the guard uses the 10 min window of the earlier write, not its own (scenario C1 in `_lots/hors-lot/bsblan-xdeco/r032/q-032r3.mjs`): the card can keep the refused value until the 30 min heartbeat. Fix: `mark.cap = Math.max(mark.cap, now + reshowMax)` in the guard, plus a test. The docs already count 10 min from the refusal.
-- [ ] m2: "twin" features showing the same parameter (`operating-mode`, `hc2-operating-mode`, `dhw-mode`, legacy 712/1612) are not under the mark: on reconnect they are republished with the value read before the write (S10). Either skip them too, or say "on the card of that setting" in the docs.
-- [ ] m3: docs style. Two sentences run past 50 words. "The reads 5 and 20 seconds later settle it" is not true during a pause after a 5xx.
-- [ ] m4: a setting changed on the controller just before the click is published by the command's fresh read and stays through a pause while the adapter is at the new value (S8). Also true in 0.3.1.
+- [x] m1: `mark.cap = Math.max(mark.cap, now + reshowMax)` in the showReal guard; test C1 in
+      `test/xdeco-n9.test.js`.
+- [x] m2: twins skipped too: `TWINS` (700 `operating-mode`, 1000 `hc2-operating-mode`, 1600 `dhw-mode`,
+      legacy 712/1612) carried by the mark, held while the mark is `left`, the adapter online and its
+      parameter not read after the write (offline, the twin shows the status text). Test S10.
+- [x] m3: docs paragraph split; "the next read of that setting settles it: 5 and 20 s later, or the
+      first one after a pause".
+- [ ] m4: not done (behaviour since 0.3.1, not a simple fix): a setting changed on the controller just
+      before the click is published by the command's fresh read and stays through a pause while the
+      adapter is at the new value (S8).
+
+## Forum t/11458 n° 9 (XDECO, 0.3.2, 2026-11-07)
+
+- [x] "waiting" (logged as info when the command starts waiting; its "waiting" answer to Gladys at
+      debug) and "replaced by a newer value" (info) are two distinct lines, `src/notices.js`; every
+      other refusal stays a warning. The protective "queued" path stays a warning.
+- [x] "Sending to Gladys failed" logged once per outage by the publisher (`failing`), then "Sending
+      to Gladys works again"; the callers no longer log it.
+- Not done: the sliders bounded to the range read. Gladys only upserts the `params` and the
+  `supported_options` of a created device (`setDiscoveredDevices` -> `upsertDeviceParams`,
+  `upsertFeatureSupportedOptions`, core ca702c37), never `min`/`max`; and the range moves (the low
+  bound of 710 follows 712), so limits fixed at creation would refuse valid values later. Docs say
+  so; the refusal names the range and the card goes back to the real value.
+- Not changed: the UTC times are the SDK logger's (`[${new Date().toISOString()}]`, lib/logger.js),
+  not ours. Docs say so.
+- Mutants: `scripts/mutants.mjs` (in the repository, not in the image).

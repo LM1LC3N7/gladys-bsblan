@@ -4,6 +4,7 @@
 // -----------------------------------------------------------------------------
 
 import { ACTIONS } from './constants.js';
+import { logOutcome } from './notices.js';
 
 export function registerHandlers(gladys, app, logger) {
   gladys.onScanRequest(() => app.scan());
@@ -16,7 +17,8 @@ export function registerHandlers(gladys, app, logger) {
     try {
       await app.setValue(device, feature, value);
     } catch (err) {
-      logger?.warn(`Command ${feature?.external_id} refused: ${err.message}`);
+      // Waiting behind another command, or replaced by a newer value: info.
+      logOutcome(logger, `Command ${feature?.external_id}`, err);
       throw err;
     }
   });
