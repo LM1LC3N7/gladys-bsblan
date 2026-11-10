@@ -73,8 +73,8 @@ const MUTANTS = [
   [
     'P1-every-failure-logged',
     'src/publisher.js',
-    '      if (this.failing !== err.message) {\n        this.failing = err.message;',
-    '      if (true) {\n        this.failing = err.message;',
+    '    if (this.causes.has(cause)) {\n      return;\n    }\n',
+    '',
   ],
   [
     'P2-no-return-line',
@@ -85,8 +85,8 @@ const MUTANTS = [
   [
     'P3-failing-never-reset',
     'src/publisher.js',
-    '      if (this.failing) {\n        this.failing = false;',
-    '      if (this.failing) {\n        this.failing = this.failing;',
+    '        this.failing = false;\n        this.causes.clear();',
+    '        this.causes.clear();',
   ],
   [
     'P4-interval-logs-again',
@@ -156,8 +156,25 @@ const MUTANTS = [
   [
     'P6-new-cause-hidden',
     'src/publisher.js',
-    '      if (this.failing !== err.message) {',
-    '      if (!this.failing) {',
+    '    if (this.causes.size < MAX_CAUSES) {',
+    '    if (this.causes.size < 1) {',
+  ],
+  // Review bsblan-033-r2 J1: the bound, its reset, the outage flag, digits ignored.
+  ['J1-no-cap', 'src/publisher.js', '    if (this.causes.size < MAX_CAUSES) {', '    if (true) {'],
+  ['J2-causes-never-cleared', 'src/publisher.js', '        this.causes.clear();\n', ''],
+  ['J3-capped-never-reset', 'src/publisher.js', '        this.capped = false;\n', ''],
+  [
+    'J4-outage-flag-is-the-cause',
+    'src/publisher.js',
+    '    this.failing = true;\n',
+    "    this.failing = String(err?.message ?? '');\n",
+  ],
+  ['J5-digits-compared', 'src/publisher.js', "message.replace(/\\d+/g, '#')", 'message'],
+  [
+    'J6-no-further-causes-line',
+    'src/publisher.js',
+    '    if (!this.capped) {\n      this.capped = true;',
+    '    if (false) {\n      this.capped = true;',
   ],
 ];
 

@@ -17,9 +17,10 @@ the notes of the version's GitHub Release.
   information lines, each with its own text, instead of warnings; the other
   refusals stay warnings.
 - "Sending to Gladys failed" is logged once while Gladys cannot be reached
-  (it was logged every second during an update of Gladys), once more when
-  the cause changes, then "Sending to Gladys works again" (forum t/11458
-  n° 9, review bsblan-033-r1 m3).
+  (it was logged every second during an update of Gladys), once more for
+  each new cause (3 at most, numbers ignored, then one line saying the
+  others are not logged), then "Sending to Gladys works again" (forum
+  t/11458 n° 9, reviews bsblan-033-r1 m3 and r2 J1).
 
 ### Fixed
 

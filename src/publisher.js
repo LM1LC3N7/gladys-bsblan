@@ -3,11 +3,15 @@
 // the current value of a feature (the last one wins); unchanged values are
 // skipped by publishChangedStates and sent again every 30 min. Whatever is
 // left over (budget spent, Gladys unreachable) waits for the next flush, every
-// second; a failure is logged once per cause, then once when sending works again.
+// second; a failure is logged once per cause (3 at most), then once when sending
+// works again.
 // Never energy consumption: this integration publishes no index.
 // -----------------------------------------------------------------------------
 
 import { LIMITS, MINUTE, TIMINGS } from './constants.js';
+
+/** Distinct causes of a failure to send to Gladys logged during one outage. */
+const MAX_CAUSES = 3;
 
 export class StatePublisher {
   constructor({ gladys, logger, now = Date.now, timers = globalThis }) {
@@ -20,8 +24,12 @@ export class StatePublisher {
     this.window = [];
     this.timer = undefined;
     this.flushing = undefined;
-    /** The cause of the failure to send to Gladys, logged once, until it works again. */
+    /** Sending to Gladys failed and has not worked since. */
     this.failing = false;
+    /** The causes logged during this outage (digits ignored), MAX_CAUSES at most. */
+    this.causes = new Set();
+    /** "Further causes not logged" written during this outage. */
+    this.capped = false;
   }
 
   start() {
@@ -61,6 +69,33 @@ export class StatePublisher {
     return this.flushing;
   }
 
+  /**
+   * A failure is logged once per cause during one outage (a cause that only
+   * differs by its digits, a time or a port, is the same), MAX_CAUSES at most,
+   * then one line saying the others are not logged (review bsblan-033-r2 J1).
+   */
+  noteFailure(err) {
+    this.failing = true;
+    const message = String(err?.message ?? '').trim() || '(no message)';
+    const cause = message.replace(/\d+/g, '#');
+    if (this.causes.has(cause)) {
+      return;
+    }
+    if (this.causes.size < MAX_CAUSES) {
+      this.causes.add(cause);
+      this.logger?.warn(
+        `Sending to Gladys failed: ${message} (retried every second; a new cause is logged once more, ${MAX_CAUSES} at most)`,
+      );
+      return;
+    }
+    if (!this.capped) {
+      this.capped = true;
+      this.logger?.warn(
+        'Sending to Gladys still fails: further causes not logged until it works again',
+      );
+    }
+  }
+
   async send() {
     const now = this.now();
     this.window = this.window.filter((t) => now - t < MINUTE);
@@ -85,16 +120,12 @@ export class StatePublisher {
       }
       if (this.failing) {
         this.failing = false;
+        this.causes.clear();
+        this.capped = false;
         this.logger?.info('Sending to Gladys works again');
       }
     } catch (err) {
-      // Once per outage, and once more for each new cause (fetch failed, then a 422).
-      if (this.failing !== err.message) {
-        this.failing = err.message;
-        this.logger?.warn(
-          `Sending to Gladys failed: ${err.message} (retried every second, logged once)`,
-        );
-      }
+      this.noteFailure(err);
       // Kept for the next round, unless a newer value arrived meanwhile.
       for (const { device_feature_external_id: id, ...value } of batch) {
         if (!this.pending.has(id)) {

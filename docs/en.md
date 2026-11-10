@@ -313,9 +313,9 @@ the last refusal; never after a confirmed success.
 In the logs, a command waiting behind another one and a waiting command
 replaced by a newer value are information lines, each with its own text;
 the other refusals are warnings. When Gladys cannot be reached (an
-update, a restart), "Sending to Gladys failed" is logged once (once more
-if the cause changes), then
-"Sending to Gladys works again". The times of the log lines are in UTC
+update, a restart), "Sending to Gladys failed" is logged once, once more
+for each new cause (3 at most, a cause that only differs by its numbers is
+the same), then "Sending to Gladys works again". The times of the log lines are in UTC
 (the `Z` at the end), as the logger of the Gladys integration SDK writes them.
 
 ## Errors and limits

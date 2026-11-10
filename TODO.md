@@ -437,3 +437,14 @@ up to date at the end of every milestone.
 - [x] m3: the publisher keeps the cause (`failing` = the message): a new cause during one outage is
       logged once more. Test, mutant P6.
 - [x] m4: docs and README: until 10 minutes after the last command of the setting.
+
+## 0.3.3 r3 (review bsblan-033-r2, 45a2b68: REFUSED, 1 I + 1 m)
+
+- [x] J1: r2's m3 logged one line per cause change (a time, a port, two alternating causes: one per
+      second), and an empty message made `failing` falsy (no "works again", a second outage hidden).
+      Now `failing` is a boolean; the causes logged during the outage are a `Set` (digits replaced,
+      empty = "(no message)"), 3 at most, then one "further causes not logged" line; all cleared
+      by a success. Tests: same cause 60 s (1 line), times/ports (1 per cause), A/B/A (2), a new
+      cause every second (3 + 1, again after a return), empty message on two outages (2 + 2).
+      Mutants J1-J6, P1/P3/P6 redone. Reviewer's g4/g5 replayed: PASS.
+- [x] n1: "(retried every second; a new cause is logged once more, 3 at most)".

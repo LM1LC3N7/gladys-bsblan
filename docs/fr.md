@@ -338,9 +338,9 @@ Dans les journaux, une commande qui attend derrière une autre et une
 commande en attente remplacée par une valeur plus récente sont des
 lignes d'information, chacune avec son texte ; les autres refus sont des
 avertissements. Quand Gladys est injoignable (mise à jour, redémarrage),
-« Sending to Gladys failed » n'est écrit qu'une fois (une de plus si la
-cause change), puis « Sending to
-Gladys works again ». Les heures des lignes sont en UTC (le `Z` final),
+« Sending to Gladys failed » n'est écrit qu'une fois, une de plus
+par nouvelle cause (3 au plus ; une cause qui ne diffère que par ses
+nombres est la même), puis « Sending to Gladys works again ». Les heures des lignes sont en UTC (le `Z` final),
 comme les écrit le journal du SDK des intégrations Gladys.
 
 ## Erreurs et limites

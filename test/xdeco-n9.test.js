@@ -267,6 +267,99 @@ test('r033 m3: a new cause during the same outage is logged once too', async (t)
   );
 });
 
+/** A publisher on the mocked clock whose Gladys fails with `causeOf(n)` while it returns a string. */
+function failingPublisher(t, causeOf) {
+  t.mock.timers.enable({ apis: ['setInterval', 'Date'], now: NOW });
+  const lines = [];
+  const state = { n: 0, causeOf };
+  const gladys = {
+    publishChangedStates: async (batch) => {
+      state.n += 1;
+      const cause = state.causeOf?.(state.n);
+      if (cause !== undefined) {
+        throw new Error(cause);
+      }
+      return { count: batch.length };
+    },
+  };
+  const publisher = new StatePublisher({ gladys, logger: recorder(lines), now: () => Date.now() });
+  t.after(() => publisher.stop());
+  publisher.start();
+  const seconds = async (count) => {
+    for (let i = 0; i < count; i += 1) {
+      publisher.push('a', { state: i });
+      t.mock.timers.tick(SECOND);
+      await settle();
+    }
+  };
+  const levels = () => lines.map(([level]) => level);
+  return { lines, state, seconds, levels };
+}
+
+test('r033-r2 J1: 60 s of the same cause: one warning', async (t) => {
+  const { seconds, levels, state } = failingPublisher(t, () => 'fetch failed');
+  await seconds(60);
+  assert.ok(state.n >= 50, `retried every second (${state.n})`);
+  assert.deepEqual(levels(), ['warn']);
+});
+
+test('r033-r2 J1: causes that differ only by a time or a port are one cause', async (t) => {
+  const { seconds, lines } = failingPublisher(t, (n) =>
+    n % 2
+      ? `Gladys error at 2026-11-10T15:50:${String(n % 60).padStart(2, '0')}Z`
+      : `connect ECONNREFUSED 172.30.0.1:${40000 + n}`,
+  );
+  await seconds(60);
+  assert.equal(lines.length, 2, JSON.stringify(lines));
+});
+
+test('r033-r2 J1: alternating causes: one line each, never written again (A, B, A)', async (t) => {
+  const { seconds, lines } = failingPublisher(t, (n) =>
+    n % 2 ? 'fetch failed' : 'The operation was aborted due to timeout',
+  );
+  await seconds(60);
+  assert.equal(lines.length, 2, JSON.stringify(lines));
+});
+
+test('r033-r2 J1: every attempt a new cause: 3 causes, one "further causes" line, then the return', async (t) => {
+  const words = ['alpha', 'beta', 'gamma', 'delta', 'epsilon', 'zeta', 'eta'];
+  const { seconds, lines, state } = failingPublisher(
+    t,
+    (n) => `failure ${words[n % words.length]}`,
+  );
+  await seconds(60);
+  assert.deepEqual(
+    lines.map(([level, l]) => [level, /further causes not logged/.test(l)]),
+    [
+      ['warn', false],
+      ['warn', false],
+      ['warn', false],
+      ['warn', true],
+    ],
+    JSON.stringify(lines),
+  );
+  state.causeOf = undefined;
+  await seconds(2);
+  assert.deepEqual(lines.at(-1), ['info', 'Sending to Gladys works again']);
+  // Cleared by the success: a new outage logs its causes again, bounded again.
+  state.causeOf = (n) => `failure ${words[n % words.length]}`;
+  await seconds(60);
+  assert.equal(lines.length, 9, JSON.stringify(lines));
+});
+
+test('r033-r2 J1 (G5): an empty message, two outages: two warnings and two returns', async (t) => {
+  const { seconds, levels, lines, state } = failingPublisher(t, () => '');
+  await seconds(5);
+  state.causeOf = undefined;
+  await seconds(2);
+  state.causeOf = () => '';
+  await seconds(5);
+  state.causeOf = undefined;
+  await seconds(2);
+  assert.deepEqual(levels(), ['warn', 'info', 'warn', 'info'], JSON.stringify(lines));
+  assert.match(lines[0][1], /\(no message\)/);
+});
+
 test('n° 9: Gladys unreachable during an update: the app logs the failure once, then the return', async (t) => {
   const { gladys, app, advance, lines } = await setup(t);
   const publish = gladys.publishChangedStates.bind(gladys);
