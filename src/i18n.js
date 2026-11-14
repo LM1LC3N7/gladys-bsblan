@@ -368,6 +368,14 @@ export const ERRORS = {
     'BSB-LAN answers slowly (it often does for a few seconds after a write): the command goes on, with the same checks before it leaves (sent within about 30 s, or not at all). The card shows the real value again if it fails.',
     "BSB-LAN répond lentement (c'est fréquent quelques secondes après une écriture) : la commande continue, avec les mêmes vérifications avant de partir (envoyée sous 30 s environ, ou pas du tout). La carte reprend la valeur réelle si elle échoue.",
   ),
+  goingOnRetry: both(
+    'BSB-LAN did not answer the last read: the command reads it again itself and goes on only if it answers, with the same checks before it leaves (sent within about 30 s, or not at all). If it fails, the card shows the real value again once BSB-LAN gave it.',
+    "BSB-LAN n'a pas répondu à la dernière lecture : la commande le relit elle-même et ne continue que s'il répond, avec les mêmes vérifications avant de partir (envoyée sous 30 s environ, ou pas du tout). Si elle échoue, la carte reprend la valeur réelle dès que BSB-LAN l'a donnée.",
+  ),
+  ownTryLater: both(
+    'BSB-LAN did not answer a command a few seconds ago: not sent. A command tries again at most every 30 s, the reads go on as planned.',
+    "BSB-LAN n'a pas répondu à une commande il y a quelques secondes : non envoyée. Une commande réessaie au plus toutes les 30 s, les lectures continuent comme prévu.",
+  ),
   queuedTooOld: both(
     'This command waited more than 30 s behind the others: dropped, not sent.',
     'Cette commande a attendu plus de 30 s derrière les autres : abandonnée, non envoyée.',

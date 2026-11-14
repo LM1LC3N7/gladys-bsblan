@@ -410,7 +410,7 @@ const unconfirmedPaths = [
     'not read back in time',
     () => (r) =>
       r.endpoint === '/JS'
-        ? { status: 200, delay: 3_900, body: JSON.stringify({ 710: { status: 1 } }) }
+        ? { status: 200, delay: 3_650, body: JSON.stringify({ 710: { status: 1 } }) }
         : undefined,
   ],
 ];

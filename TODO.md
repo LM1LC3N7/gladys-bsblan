@@ -461,8 +461,9 @@ for a poll request in flight; `checkBeforeSend` on `live`).
 - [x] Budgets from getting the adapter: `commandStartWait` 15 s from arrival (or dequeue; above the
       15 s of a poll request, so in practice only a protective queue can make it late),
       `commandReadMax` 12 s for /JI + fresh read, the write within 0.3 s of that, its answer and read
-      back until max(4.3 s after the click, 4 s after the write leaves) (`commandConfirmMax`): the
-      fast path keeps its 4.3 s outcomes.
+      back until max(4.3 s after the click, 4 s after the write leaves) (`commandConfirmMax`). (r034
+      m3: the fast path did not keep its 4.3 s outcomes: the write always leaves after the click;
+      now 4.0 s / 3.8 s, see below.)
 - [x] Ack decoupled (`ackBy`, shared with the queue): a direct command not over by 4.5 s
       (`commandAckMargin` 200 ms after the 4.3 s deadlines, so those settle first) answers
       `ERRORS.goingOn` (pending, notice `goingOn` logged as info), its outcome logged later
@@ -491,3 +492,29 @@ for a poll request in flight; `checkBeforeSend` on `live`).
 - Mutants B1-B10 in `scripts/mutants.mjs` (L2, L7 anchors moved to `ackBy`).
 - To check on his adapter: the outcome lines "(going on): done" after a write; whether a poll
   request still times out (15 s) when BSB-LAN is slow; if so, the commands now pass anyway.
+
+## 0.3.4 r2 (review bsblan-034-r1, dc8809c: REFUSED, 2 I + 5 m)
+
+- [x] I1: `latest` (`mac:role` -> newest arrival, set on every non-protective command allowed in);
+      `checkBeforeSend(…, arrival)` refuses an older one "replaced" (`pending`, notice `replaced`:
+      info, the newer one settles the card): at the start of the session, after /JI, after the fresh
+      read and in `beforeSend`. A command already sent is untouched. Tests S1 (22 then 23: only 23
+      written), S2 (the newer one sent, the older one requests nothing), "already left".
+- [x] I2: `offlineFresh` (parameters a command read, MAC checked, while offline; cleared by a good
+      poll); `showReal` -> `showOffline` publishes the command's feature from that read. No answer:
+      nothing known, the card waits (docs say so, second exception). Offline the "going on" text is
+      `goingOnRetry`, and a refusal never gets the "answers slowly / MQTT" hint. Tests S5, dead
+      adapter, slow own try.
+- [x] m1: R12 (Gate held 16 s by an injected task: "too slow", nothing requested), R14 (the fake
+      transport now simulates a slow connection, `{ connect }` vs `sendWithin`).
+- [x] m2: `ownTryUntil`: a failed own try (any BsbError, offline) holds the next own tries 30 s
+      ("did not answer a command a few seconds ago"); the own /JI waits 3 s at most
+      (`ownTryInfo`); protective commands untouched. Test: 10 clicks in 20 s -> 1 /JI, a Protection
+      right after still tries, another try after 30 s.
+- [x] m3: ack at 4.2 s (`commandAnswerBy` 4.0 s + 200 ms; queued ack 4.0 s, protective deadline
+      4.0 s); `commandConfirmMax` 3.8 s so a write that left within 0.2 s keeps its deadline at
+      4.0 s and settles before the ack; comments fixed. Test "not read back in time": /JS 3.65 s.
+- [x] m4: a queued command's `startBy` = min(dequeue + 15 s, click + 30 s): worst case ~42 s,
+      written in docs and CHANGELOG (27 s direct). Test.
+- [x] m5: `checkBeforeSend` at the start of the session: nothing requested once overtaken or replaced.
+- Mutants C1-C12 (and the anchors of B3, B7, L1 moved) in `scripts/mutants.mjs`.

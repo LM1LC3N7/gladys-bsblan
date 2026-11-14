@@ -193,8 +193,8 @@ const MUTANTS = [
   [
     'B3-start-wait-2.2s',
     'src/app.js',
-    '{ startBy: received + TIMINGS.commandStartWait }',
-    '{ startBy: received + 2_200 }',
+    '{ startBy: Math.min(received + TIMINGS.commandStartWait, startLimit) }',
+    '{ startBy: Math.min(received + 2_200, startLimit) }',
   ],
   ['B4-confirm-from-click-only', 'src/app.js', 'this.now() + TIMINGS.commandConfirmMax,', '0,'],
   [
@@ -212,8 +212,8 @@ const MUTANTS = [
   [
     'B7-no-yield-after-ji',
     'src/app.js',
-    '      if (epoch !== this.stopEpoch) {\n        throw this.refusal(ERRORS.overtaken);\n      }\n      // What /JI',
-    '      // What /JI',
+    '      // A protective command or a newer value meanwhile: the adapter is freed now.\n      this.checkBeforeSend(generation, target, wanted, epoch, arrival);\n',
+    '',
   ],
   [
     'B8-read-back-before-protection',
@@ -228,6 +228,69 @@ const MUTANTS = [
     '    logger?.warn(`${what} ${LINES[NOTICES.goingOn]}`);',
   ],
   ['B10-no-ack-margin', 'src/app.js', 'received + TIMINGS.commandAckMargin,', 'received,'],
+  // Review bsblan-034-r1.
+  [
+    'C1-never-replaced',
+    'src/app.js',
+    '    if ((this.latest.get(`${mac}:${role}`) ?? 0) > arrival) {',
+    '    if (false) {',
+  ],
+  [
+    'C2-latest-not-set',
+    'src/app.js',
+    '    this.latest.set(`${target.mac}:${target.role}`, arrival);\n',
+    '',
+  ],
+  ['C3-no-offline-show', 'src/app.js', '    this.showOffline(target, id);\n', ''],
+  ['C4-offline-fresh-not-kept', 'src/app.js', '        this.offlineFresh.set(id, seq);\n', ''],
+  [
+    'C5-slow-hint-on-retry',
+    'src/app.js',
+    'throw this.refusal(retry ? text : slowOr(text, err));',
+    'throw this.refusal(slowOr(text, err));',
+  ],
+  [
+    'C6-no-own-try-spacing',
+    'src/app.js',
+    '        this.ownTryUntil = this.now() + TIMINGS.ownTryRetry;\n',
+    '',
+  ],
+  [
+    'C7-own-try-full-budget',
+    'src/app.js',
+    'answerBy: retry ? Math.min(readBy, this.now() + TIMINGS.ownTryInfo) : readBy,',
+    'answerBy: readBy,',
+  ],
+  [
+    'C8-no-check-at-session-start',
+    'src/app.js',
+    '    // it waited for the adapter: nothing requested (r034 m5).\n    this.checkBeforeSend(generation, target, wanted, epoch, arrival);\n',
+    '    // it waited for the adapter: nothing requested (r034 m5).\n',
+  ],
+  [
+    'C9-queued-no-start-limit',
+    'src/app.js',
+    'Math.min(received + TIMINGS.commandStartWait, startLimit)',
+    'received + TIMINGS.commandStartWait',
+  ],
+  [
+    'C10-retry-said-slow',
+    'src/app.js',
+    'error: retry ? ERRORS.goingOnRetry : ERRORS.goingOn,',
+    'error: ERRORS.goingOn,',
+  ],
+  [
+    'C11-start-wait-60s',
+    'src/app.js',
+    'Math.min(received + TIMINGS.commandStartWait, startLimit)',
+    'Math.min(received + 60_000, startLimit)',
+  ],
+  [
+    'C12-send-by-plus-30s',
+    'src/app.js',
+    'sendBy: start + TIMINGS.commandReadMax + TIMINGS.commandMinSend,',
+    'sendBy: start + TIMINGS.commandReadMax + 30_000,',
+  ],
 ];
 
 function apply(file, from, to) {

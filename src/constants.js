@@ -137,33 +137,45 @@ export const TIMINGS = {
   /** The button waits 30 s in Gladys: it answers by 25 s, the read going on if longer. */
   testBudget: 25 * SECOND,
   /**
-   * Gladys waits 5 s for the ack: a command answers by 4.3 s after the
-   * click. A command not over then goes on in the background ("going on",
-   * its outcome in the log, 0.3.4). A protective command is queued by
-   * 3.5 - 0.3 s and its write is "sent, without confirmation" past 4.3 s
+   * Gladys waits 5 s for the ack, counted from its own send (WebSocket
+   * transit included): a queued command answers "queued" by 4.0 s after
+   * the click (r034 m3: was 4.3 s). A protective command is queued by
+   * 3.5 - 0.3 s and its write is "sent, without confirmation" past 4.0 s
    * after it got the adapter.
    */
   commandSendBy: 3_500,
-  commandAnswerBy: 4_300,
+  commandAnswerBy: 4_000,
   /**
-   * A command not queued answers "going on" this much after 4.3 s: its own
-   * deadlines at 4.3 s (a write without answer) settle it first (4.5 s,
-   * Gladys waits 5 s).
+   * A command not queued answers "going on" 4.2 s after the click (0.8 s
+   * left of Gladys's 5 s). The 200 ms after 4.0 s let a write without
+   * answer that left within 0.2 s of the click (its deadline 4.0 s after
+   * the click) settle first; a write that left later has 3.8 s from its
+   * departure, is answered "going on" and its outcome logged.
    */
   commandAckMargin: 200,
   /**
    * A command (0.3.4, XDECO t/11458 n° 11: after a write, BSB-LAN takes 1 to
    * 2 s per parameter for about 10 s): it gets the adapter within 15 s of
-   * its arrival (or of leaving the queue), else it is refused unsent; from
-   * then, its /JI and its fresh read have 12 s, the write leaves within
-   * 0.3 s of that, and its answer and read back last until 4.3 s after the
-   * click, and at least 4 s after the write leaves.
+   * its arrival (a queued one: of leaving the queue, and never later than
+   * 30 s after its click), else it is refused unsent; from then, its /JI
+   * and its fresh read have 12 s, the write leaves within 0.3 s of that,
+   * and its answer and read back last at least 3.8 s after the write leaves
+   * (and until 4.0 s after the click). Worst case of a write leaving: about
+   * 27 s after the click (direct), 42 s (queued).
    */
   commandStartWait: 15 * SECOND,
   commandReadMax: 12 * SECOND,
-  commandConfirmMax: 4 * SECOND,
+  commandConfirmMax: 3_800,
   commandMinRead: 300,
   commandMinSend: 300,
+  /**
+   * The adapter in its retry delay after a failed read (0.3.4): a command's
+   * own /JI waits at most this long (it does not query the bus), and after
+   * a failed own try the next command waits this long before trying again
+   * (r034 m2); protective commands are never held by it.
+   */
+  ownTryInfo: 3 * SECOND,
+  ownTryRetry: 30 * SECOND,
   /** After a write that may have left, the next command waits this long (queued, 0.3.1). */
   commandSpacing: 3 * SECOND,
   /** Polls after a command, spaced: its effect, then a check. */

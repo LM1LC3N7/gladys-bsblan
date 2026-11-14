@@ -234,6 +234,11 @@ export function fakeBsbLan({
       }
       fake.requests.push(request);
       const override = fake.behave?.(request);
+      // A connection slower to open than the transport allows: nothing sent.
+      if (override?.connect !== undefined && override.connect >= options.sendWithin) {
+        setTimeout(() => reject(new BsbError(CODES.LATE)), options.sendWithin);
+        return;
+      }
       const delay = override?.delay ?? fake.latency;
       if (override === 'timeout' || delay >= options.timeout) {
         setTimeout(() => reject(new BsbError(CODES.TIMEOUT, { sent: true })), options.timeout);

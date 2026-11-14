@@ -347,3 +347,228 @@ test('a Protection during the write of a command: no read back first, the Protec
   assert.match(a.ack.error, /sans confirmation \(not read back: a protective command first\)/);
   assert.equal(s.bsb.params[700].value, '0');
 });
+
+// --- Review bsblan-034-r1 -------------------------------------------------------
+
+test('r034 I1 (S1): a newer value of the same setting replaces a slow command not sent yet', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  let slowUntil = -Infinity;
+  s.bsb.behave = (r) => {
+    const slow = Date.now() < slowUntil;
+    if (r.endpoint === '/JS') {
+      slowUntil = Date.now() + 1_000 + 12 * SECOND;
+      return { delay: 1_000 };
+    }
+    if (r.endpoint === '/JI') {
+      return { delay: slow ? 1_000 : 250 };
+    }
+    return r.endpoint === '/JQ' ? { delay: r.ids.length * (slow ? 2_200 : 1_600) } : undefined;
+  };
+  const a = s.click('hc2-setpoint', 22);
+  await s.until(() => a.ack);
+  assert.match(a.ack.error, /la commande continue/);
+  await s.advance(6_000 - (Date.now() - a.at));
+  const b = s.click('hc2-setpoint', 23);
+  await s.until(() => b.ack && !s.app.inFlight && s.app.waiting.size === 0, 90 * SECOND);
+  assert.deepEqual(writes(s.bsb), [['1010', '23.0']], '22 never written after the click of 23');
+  assert.equal(s.bsb.params[1010].value, '23.0');
+  assert.ok(
+    s.logs.some((l) => l.level === 'info' && /hc2-setpoint 22 \(going on\).*replaced/.test(l.line)),
+    s.logs.map((l) => `${l.level}: ${l.line}`).join(' | '),
+  );
+});
+
+test('r034 I1 (S2): a command waiting for the adapter is replaced, the newer one is sent', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  let stall = true;
+  s.bsb.behave = (r) => {
+    if (r.endpoint === '/JQ' && r.ids.length === 4 && stall) {
+      stall = false;
+      r.stalled = true;
+      return { delay: 14_500 };
+    }
+    if (r.endpoint === '/JQ' && r.ids.length === 5) {
+      return { delay: 11_000 };
+    }
+    if (r.endpoint === '/JS') {
+      return { delay: 3_000 };
+    }
+    return r.endpoint === '/JQ' && r.ids.length === 1 ? { delay: 3_500 } : undefined;
+  };
+  s.app.tick();
+  await s.until(() => s.bsb.requests.at(-1)?.ids?.length === 4, 3_000);
+  const a = s.click('hc2-setpoint', 22);
+  await s.advance(500);
+  const b = s.click('hc2-setpoint', 23);
+  await s.until(() => a.ack && b.ack && !s.app.inFlight && s.app.waiting.size === 0, 90 * SECOND);
+  assert.deepEqual(writes(s.bsb), [['1010', '23.0']]);
+  assert.equal(s.bsb.params[1010].value, '23.0', 'the last click wins');
+  // Replaced right when it got the adapter: not even a /JI for it.
+  const after = s.bsb.requests.slice(
+    s.bsb.requests.findIndex((r) => r.stalled),
+    s.bsb.requests.findIndex((r) => r.endpoint === '/JS'),
+  );
+  assert.equal(after.filter((r) => r.endpoint === '/JI').length, 1, 'one /JI: the newer command');
+  assert.equal(after.filter((r) => r.ids.length === 5).length, 1, 'one fresh read');
+});
+
+test('r034 I1: a command that already left is not touched by a newer one', async (t) => {
+  const s = await setup(t);
+  s.bsb.behave = (r) => (r.endpoint === '/JS' ? { delay: 2_000 } : undefined);
+  const a = s.click('heating-setpoint', 22);
+  await s.until(() => s.bsb.requests.some((r) => r.endpoint === '/JS'), 2_000);
+  const b = s.click('heating-setpoint', 21);
+  await s.until(() => a.ack && b.ack && !s.app.inFlight && s.app.waiting.size === 0, 40 * SECOND);
+  assert.equal(a.ack.error, undefined, 'the first one confirmed');
+  assert.deepEqual(writes(s.bsb), [
+    ['710', '22.0'],
+    ['710', '21.0'],
+  ]);
+  assert.equal(s.bsb.params[710].value, '21.0');
+});
+
+test('r034 I2 (S5): refused after its own read during the retry delay: the card shows the real value', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  await s.advance(MINUTE);
+  const id = feature('hc2-setpoint');
+  const before = s.gladys.fake.states.length;
+  // 1016 = 26: 26.5 is above the controller's maximum.
+  const a = s.click('hc2-setpoint', 26.5);
+  await s.until(() => a.ack);
+  assert.match(a.ack.error, /non envoyée/);
+  await s.advance(2 * SECOND);
+  const shown = s.gladys.fake.states
+    .slice(before)
+    .filter((x) => x.device_feature_external_id === id)
+    .map((x) => x.state);
+  assert.deepEqual(shown, [21], 'the value read by the command');
+  assert.equal(s.app.adapter.online, false, 'still in its retry delay');
+});
+
+test('r034 I2: no answer during the retry delay: refused without the "slow adapter" hint, nothing shown', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  s.bsb.behave = (r) => (r.endpoint === '/JI' ? 'timeout' : undefined);
+  const id = feature('hc2-setpoint');
+  const before = s.gladys.fake.states.length;
+  const a = s.click('hc2-setpoint', 22);
+  await s.until(() => a.ack);
+  assert.ok(a.took < 4_000, `its /JI waited 3 s at most: ${a.took}`);
+  assert.match(a.ack.error, /relue juste avant \(timeout\) : commande non envoyée\.$/);
+  assert.doesNotMatch(a.ack.error, /lentement/);
+  await s.advance(2 * SECOND);
+  assert.deepEqual(
+    s.gladys.fake.states.slice(before).filter((x) => x.device_feature_external_id === id),
+    [],
+    'no value known: the card waits for the next read',
+  );
+});
+
+test('r034 m2: during the retry delay, one own try per 30 s; a Protection is never held by it', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  s.bsb.down = true;
+  const before = s.bsb.requests.length;
+  const acks = [];
+  for (let i = 0; i < 10; i += 1) {
+    acks.push(s.click('heating-setpoint', 20 + (i % 3)));
+    await s.advance(2_000);
+  }
+  await s.until(() => acks.every((x) => x.ack) && !s.app.inFlight, 30 * SECOND);
+  assert.equal(s.bsb.requests.length - before, 1, 'one /JI for 10 clicks in 20 s');
+  assert.match(acks[1].ack.error, /il y a quelques secondes : non envoyée/);
+  const p = s.click('mode', 'protection');
+  await s.until(() => p.ack, 10 * SECOND);
+  assert.equal(s.bsb.requests.at(-1).endpoint, '/JS', 'the Protection tried at once');
+  // 30 s after the failed try: a command tries again.
+  await s.advance(30 * SECOND);
+  const count = s.bsb.requests.length;
+  const c = s.click('heating-setpoint', 22);
+  await s.until(() => c.ack);
+  assert.equal(s.bsb.requests.length, count + 1);
+  assert.equal(s.bsb.requests.at(-1).endpoint, '/JI');
+});
+
+test('r034 m1 (R12): a command that cannot get the adapter within 15 s is refused unsent', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  // Something holds the adapter 16 s (a request BSB-LAN serves).
+  s.app.adapter.client.gate.run(() => new Promise((resolve) => setTimeout(resolve, 16 * SECOND)));
+  const before = s.bsb.requests.length;
+  const a = s.click('mode', 'reduced');
+  await s.until(() => a.ack && !s.app.inFlight, 30 * SECOND);
+  await s.advance(2 * SECOND);
+  assert.equal(s.bsb.requests.length, before, 'nothing requested');
+  assert.deepEqual(writes(s.bsb), []);
+  assert.ok(
+    s.logs.some(
+      (l) => l.level === 'warn' && /mode reduced \(going on\).*trop lentement/.test(l.line),
+    ),
+    s.logs.map((l) => l.line).join(' | '),
+  );
+});
+
+test('r034 m1 (R14): a write whose connection cannot open before its limit is not sent', async (t) => {
+  const s = await setup(t);
+  // The fresh read takes 11.8 s of its 12 s, then the connection of the write 1 s.
+  s.bsb.behave = (r) => {
+    if (r.endpoint === '/JQ' && r.ids.length > 1) {
+      return { delay: 11_800 };
+    }
+    return r.endpoint === '/JS' ? { connect: 1_000 } : undefined;
+  };
+  const a = s.click('heating-setpoint', 22);
+  await s.until(() => a.ack && !s.app.inFlight, 30 * SECOND);
+  assert.equal(s.bsb.params[710].value, '20.0', 'never applied');
+  assert.deepEqual(s.bsb.writes(), []);
+  assert.ok(
+    s.logs.some(
+      (l) => l.level === 'warn' && /heating-setpoint 22 \(going on\).*trop lentement/.test(l.line),
+    ),
+    s.logs.map((l) => l.line).join(' | '),
+  );
+});
+
+test('r034 m4: a queued command never starts later than 30 s after its click', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  const gate = s.app.adapter.client.gate;
+  const hold = (ms) => gate.run(() => new Promise((resolve) => setTimeout(resolve, ms)));
+  // The adapter is held 14 s; then the setpoint's fresh read 11 s.
+  hold(14 * SECOND);
+  let held = false;
+  s.bsb.behave = (r) => {
+    if (r.endpoint === '/JQ' && r.ids.length === 4) {
+      return { delay: 11 * SECOND };
+    }
+    if (r.endpoint === '/JS' && !held) {
+      // While it writes, something else waits for the adapter (6 s).
+      held = true;
+      hold(6 * SECOND);
+    }
+    return undefined;
+  };
+  const a = s.click('heating-setpoint', 22);
+  await s.advance(500);
+  const b = s.click('mode', 'reduced');
+  await s.until(() => a.ack && b.ack && !s.app.inFlight && s.app.waiting.size === 0, 60 * SECOND);
+  await s.advance(10 * SECOND);
+  assert.equal(s.bsb.params[710].value, '22.0');
+  // B leaves the queue about 28 s after its click, the adapter is free about 31 s after it.
+  assert.equal(s.bsb.params[700].value, '3', 'the mode never written');
+  assert.ok(
+    s.logs.some(
+      (l) => l.level === 'warn' && /mode reduced \(queued\).*trop lentement/.test(l.line),
+    ),
+    s.logs.map((l) => l.line).join(' | '),
+  );
+});
+
+test('r034 I2: a slow own try during the retry delay is answered as a retry, not as a slow adapter', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  s.bsb.behave = (r) => (r.endpoint === '/JQ' && r.ids.length > 1 ? { delay: 5_000 } : undefined);
+  const a = s.click('heating-setpoint', 22);
+  await s.until(() => a.ack && !s.app.inFlight, 20 * SECOND);
+  assert.match(a.ack.error, /n'a pas répondu à la dernière lecture : la commande le relit/);
+  assert.equal(s.bsb.params[710].value, '22.0');
+});

@@ -60,10 +60,12 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   1612 ≤ 1610) to the end of the write, decides on that read only, checks
   the option and the hot water ceiling again right before the request
   leaves, gets the adapter within 15 s, has 12 s from then for its /JI and
-  fresh read and leaves right after or is refused unsent; Gladys is
-  answered by 4.5 s ("going on" when BSB-LAN is slow after a write, the
-  outcome then in the logs); during the retry delay after a failed read, a
-  command reads the identified adapter itself; success only when a read back shows the value; a write
+  fresh read and leaves right after or is refused unsent; a newer value of
+  the same setting replaces it until then; Gladys is answered by 4.2 s
+  ("going on" when BSB-LAN is slow after a write, the outcome then in the
+  logs); during the retry delay after a failed read, a command reads the
+  identified adapter itself (at most one try per 30 s when it does not
+  answer); success only when a read back shows the value; a write
   without status 1 is "sent, without confirmation", followed by reads 5 s
   and 20 s later. **Protective** (Protection on 700/1000, hot water Off on
   1600): no option, through a pause, a stop or another command, first in

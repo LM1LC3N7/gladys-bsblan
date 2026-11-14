@@ -25,7 +25,10 @@
 //     on arrival, after the fresh read and right before the request leaves;
 //   - the fresh read and the write hold the adapter together (the Gate): no
 //     other request runs in between;
-//   - sent within 3.5 s of the click or refused unsent; answered by 4.3 s;
+//   - the adapter got within 15 s, /JI and fresh read within 12 s of that,
+//     the write right after, or refused unsent; Gladys answered by 4.2 s
+//     ("going on" then, the outcome logged); a newer value of the same
+//     setting replaces it until it leaves;
 //   - a write that may have reached the adapter (silence, a dropped
 //     connection, a 5xx, an answer without a clear status) is never answered
 //     "not sent": "sent, without confirmation", then spaced reads;
@@ -292,6 +295,12 @@ export class BsbLanApp {
     this.queueTimer = undefined;
     /** No new command before this time: a write left just before. */
     this.quietUntil = -Infinity;
+    /** `${mac}:${role}` -> the arrival of the newest command of that setting (r034 I1). */
+    this.latest = new Map();
+    /** A command's own try failed while the adapter was offline: none again before this (r034 m2). */
+    this.ownTryUntil = -Infinity;
+    /** Parameters a command read (MAC checked) while the adapter was offline: id -> readSeq (r034 I2). */
+    this.offlineFresh = new Map();
     /** `${mac}:${role}` -> { from, expected, moved, until }: a command sent, not seen yet. */
     this.guards = new Map();
     /** Increases at every read of parameters (a poll batch, a command's fresh read). */
@@ -870,6 +879,7 @@ export class BsbLanApp {
       this.paramSeqs.set(id, seq);
     }
     adapter.online = true;
+    this.offlineFresh.clear();
     adapter.failures = 0;
     adapter.wait = undefined;
     adapter.error = undefined;
@@ -1446,10 +1456,14 @@ export class BsbLanApp {
     if (!this.config.allowCommands) {
       throw this.refusal(ERRORS.disabled);
     }
+    // The newest value of a setting replaces an older one until it leaves (r034 I1).
+    this.latest.set(`${target.mac}:${target.role}`, arrival);
     if (this.inFlight || received < this.quietUntil || this.waiting.size > 0) {
       // Another command is running, or one left less than 3 s ago: waits.
       return this.enqueue(target, wanted, received, arrival);
     }
+    // Said before it starts: a retry of an adapter that did not answer, or a slow one.
+    const retry = !this.live;
     const promise = this.command(target, wanted, received, this.stopEpoch, arrival);
     this.inFlight = promise;
     promise
@@ -1460,16 +1474,16 @@ export class BsbLanApp {
         this.scheduleQueue();
       })
       .catch(() => {});
-    // A slow adapter (after a write): answered by 4.5 s, it goes on (0.3.4).
+    // A slow adapter (after a write): answered by 4.2 s, it goes on (0.3.4).
     return this.ackBy(target, wanted, received + TIMINGS.commandAckMargin, promise, {
       label: 'going on',
-      error: ERRORS.goingOn,
+      error: retry ? ERRORS.goingOnRetry : ERRORS.goingOn,
       notice: NOTICES.goingOn,
     });
   }
 
   /**
-   * The ack never waits past `from` + 4.3 s: a command still going on then
+   * The ack never waits past `from` + 4.0 s: a command still going on then
    * (queued, or a slow adapter) is answered `error` (pending, logged as
    * info), and its outcome is logged when it ends; a failure then shows the
    * real value on the card (afterFailure).
@@ -1595,6 +1609,8 @@ export class BsbLanApp {
       this.now(),
       entry.epoch,
       entry.arrival,
+      // Never started later than 30 s after its click (r034 m4).
+      entry.queuedAt + TIMINGS.queueMaxAge,
     );
     this.inFlight = promise;
     promise.then(entry.resolve, entry.reject).finally(() => {
@@ -1678,11 +1694,39 @@ export class BsbLanApp {
       this.forgetPublished(id);
     }
     this.queueStates();
+    this.showOffline(target, id);
     this.flush().catch(() => {});
   }
 
+  /**
+   * In the retry delay after a failed read, the states give only the status
+   * text: the feature of a command is published from the command's own
+   * fresh read (its MAC checked by its /JI) when there is one (r034 I2).
+   * Without it (BSB-LAN did not answer the command either), the card waits
+   * for the next read.
+   */
+  showOffline(target, id) {
+    const adapter = this.adapter;
+    if (!id || this.live || !adapter?.values || adapter.mac !== target.mac) {
+      return;
+    }
+    const param = COMMANDS[target.role].id;
+    if (!this.offlineFresh.has(param)) {
+      return;
+    }
+    const ids = deviceIds(this.gladys, target.mac);
+    const state = deviceStates(ids, adapter.values, {
+      bus: adapter.info?.bus,
+      language: this.config.language,
+    }).find((s) => s.device_feature_external_id === id);
+    if (state) {
+      const { device_feature_external_id: _, ...value } = state;
+      this.publisher.push(id, value);
+    }
+  }
+
   /** The checks before sending, on the latest configuration and state. */
-  checkBeforeSend(generation, { mac, role }, wanted, epoch) {
+  checkBeforeSend(generation, { mac, role }, wanted, epoch, arrival) {
     if (!this.config.allowCommands) {
       throw this.refusal(ERRORS.disabled);
     }
@@ -1690,8 +1734,19 @@ export class BsbLanApp {
     if (epoch !== this.stopEpoch) {
       throw this.refusal(ERRORS.overtaken);
     }
+    // A newer value of this setting arrived: it settles the card (r034 I1).
+    if ((this.latest.get(`${mac}:${role}`) ?? 0) > arrival) {
+      const newer = this.refusal(ERRORS.queuedReplaced);
+      newer.pending = true;
+      newer.notice = NOTICES.replaced;
+      throw newer;
+    }
     if (this.blockedUntil() > 0) {
       throw this.refusal(ERRORS.paused);
+    }
+    if (!this.live && this.ownTryUntil > this.now()) {
+      // Its own try failed a moment ago: not one /JI per click (r034 m2).
+      throw this.refusal(ERRORS.ownTryLater);
     }
     if (generation !== this.generation || !this.commandable || mac !== this.adapter.mac) {
       throw this.refusal(ERRORS.unknownDevice);
@@ -1733,9 +1788,9 @@ export class BsbLanApp {
     }
   }
 
-  async command(target, wanted, received, epoch, arrival) {
+  async command(target, wanted, received, epoch, arrival, startLimit = Infinity) {
     const generation = this.generation;
-    this.checkBeforeSend(generation, target, wanted, epoch);
+    this.checkBeforeSend(generation, target, wanted, epoch, arrival);
     const adapter = this.adapter;
     // One session holds the adapter from the fresh read to the end of the
     // write: no other request runs in between. Its budgets count from the
@@ -1755,7 +1810,7 @@ export class BsbLanApp {
             arrival,
           });
         },
-        { startBy: received + TIMINGS.commandStartWait },
+        { startBy: Math.min(received + TIMINGS.commandStartWait, startLimit) },
       );
     } catch (err) {
       if (err.code === CODES.LATE) {
@@ -1788,6 +1843,10 @@ export class BsbLanApp {
     for (const id of ids) {
       this.paramSeqs.set(id, seq);
       this.freshReads.set(id, { seq, entry: picked[id], stamp });
+      if (adapter.online === false) {
+        // Read by the command itself during the retry delay (MAC checked).
+        this.offlineFresh.set(id, seq);
+      }
     }
     this.observe(mac, adapter.values, {
       stamps: Object.fromEntries(ids.map((id) => [id, stamp])),
@@ -1810,20 +1869,29 @@ export class BsbLanApp {
     // of the device (its MAC), on a BSB or LPB bus. Then the parameters,
     // never the values in memory. Both within the read budget.
     const ids = spec.read;
+    // Overtaken by a protective command or replaced by a newer value while
+    // it waited for the adapter: nothing requested (r034 m5).
+    this.checkBeforeSend(generation, target, wanted, epoch, arrival);
+    // The adapter in its retry delay after a failed read: its own try. Its
+    // /JI does not query the bus: a short wait, never a long hold of the
+    // adapter in front of a protective command (r034 m2).
+    const retry = !this.live;
     let answer;
     try {
-      const info = adapterOf(await raw.info({ answerBy: readBy }));
+      const info = adapterOf(
+        await raw.info({
+          answerBy: retry ? Math.min(readBy, this.now() + TIMINGS.ownTryInfo) : readBy,
+        }),
+      );
       adapter.lastMac = info?.mac;
       if (!info?.mac || info.mac !== mac) {
         throw this.refusal(ERRORS.unknownDevice);
       }
-      if (generation !== this.generation || this.adapter !== adapter || !this.commandable) {
+      if (generation !== this.generation || this.adapter !== adapter) {
         throw this.refusal(ERRORS.unknownDevice);
       }
-      // A protective command arrived meanwhile: the adapter is freed for it now.
-      if (epoch !== this.stopEpoch) {
-        throw this.refusal(ERRORS.overtaken);
-      }
+      // A protective command or a newer value meanwhile: the adapter is freed now.
+      this.checkBeforeSend(generation, target, wanted, epoch, arrival);
       // What /JI says now is what the status shows.
       adapter.info = info;
       this.checkAdapter(info);
@@ -1832,11 +1900,17 @@ export class BsbLanApp {
       if (!(err instanceof BsbError)) {
         throw err;
       }
+      if (retry) {
+        // No answer again: the next commands do not try before 30 s.
+        this.ownTryUntil = this.now() + TIMINGS.ownTryRetry;
+      }
       if (err.code === CODES.LATE) {
         throw this.refusal(ERRORS.tooSlow);
       }
       this.block(err);
-      throw this.refusal(slowOr(ERRORS.unknownState(reasonOf(err)), err));
+      const text = ERRORS.unknownState(reasonOf(err));
+      // "Answers slowly" only of an adapter that answers the reads (r034 I2).
+      throw this.refusal(retry ? text : slowOr(text, err));
     }
     if (generation !== this.generation || this.adapter !== adapter || !this.commandable) {
       throw this.refusal(ERRORS.unknownDevice);
@@ -1863,7 +1937,7 @@ export class BsbLanApp {
       return;
     }
     // The option may have been turned off during the read: checked again.
-    this.checkBeforeSend(generation, target, wanted, epoch);
+    this.checkBeforeSend(generation, target, wanted, epoch, arrival);
     if (this.now() > sendBy) {
       throw this.refusal(ERRORS.tooSlow);
     }
@@ -1871,8 +1945,8 @@ export class BsbLanApp {
       plan: { from: current, expected },
       received,
       sendBy,
-      // Its answer and its read back: until 4.3 s after the click, and at
-      // least 4 s after it leaves (a write that leaves late, 0.3.4).
+      // Its answer and its read back: until 4.0 s after the click, and at
+      // least 3.8 s after it leaves (a write that leaves late, 0.3.4).
       answerBy: Math.max(
         received + TIMINGS.commandAnswerBy,
         this.now() + TIMINGS.commandConfirmMax,
@@ -1880,7 +1954,7 @@ export class BsbLanApp {
       epoch,
       arrival,
       // The very last check, right before the request leaves.
-      beforeSend: () => this.checkBeforeSend(generation, target, wanted, epoch),
+      beforeSend: () => this.checkBeforeSend(generation, target, wanted, epoch, arrival),
     });
   }
 

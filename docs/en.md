@@ -276,10 +276,15 @@ BSB-LAN is often slow for a few seconds after a write (1 to 2 seconds per
 parameter read). So a command gets the adapter within 15 seconds (the
 request it is serving ends first), then has 12 seconds for its `/JI` and
 its fresh read, and its write leaves right after them or not at all; the
-answer of the write and its read back have at least 4 seconds. Gladys
-always gets an answer within its 5 seconds: a command not over by then is
-answered "BSB-LAN answers slowly: the command goes on" and its outcome
-follows in the logs (the card shows the real value again if it fails).
+answer of the write and its read back have at least 3.8 seconds. So a
+write leaves at the latest about 27 seconds after the click, about 42
+seconds for a command that waited behind another one. Gladys gets an
+answer 4.2 seconds after the click at the latest: a command not over by
+then is answered "BSB-LAN answers slowly: the command goes on" and its
+outcome follows in the logs (the card shows the real value again if it
+fails). Until its write leaves, a newer value of the same setting
+replaces it: it is not sent ("replaced by a newer value", an information
+line), the newer one is.
 BSB-LAN accepts a write with a status 1;
 the integration **then reads the parameter again** and says success only
 when that read shows the value asked (still the previous one: "read again
@@ -299,19 +304,25 @@ it drops it (never sent after a protective command), and so does a
 restart of the integration. Protective commands never wait behind it.
 After a command refused before it left, cancelled, dropped or read back
 unchanged, the card shows the value read again at once (Gladys otherwise
-keeps the value typed). The exception: an earlier command of the same
+keeps the value typed). Two exceptions: an earlier command of the same
 setting is still "sent, without confirmation" and that setting was not
-read since; then the card waits for the first read.
+read since; or BSB-LAN is in its retry delay (below) and did not answer
+the command either, so no value is known. Then the card waits for the
+first read.
 
 After a failed read (BSB-LAN did not answer in time), the next read waits
 for the retry delay, never shorter than the refresh interval (10 minutes
 with an interval of 10 minutes). A command meanwhile is not refused for
-that alone: it reads the adapter itself (`/JI`, then the fresh read) and
-leaves only if the MAC address is the device's. It is still refused after
-a read that gave another adapter, no MAC address or no JSON API, and
-during a pause or a stop on refused credentials. Such a command changes
-neither the status nor the time of the next read (no reads 5 and 20
-seconds later while the adapter is said unreachable).
+that alone: it reads the adapter itself (`/JI`, waited 3 seconds at most,
+then the fresh read) and leaves only if the MAC address is the device's.
+Refused after that read, its card shows the value read. It is still
+refused after a read that gave another adapter, no MAC address or no JSON
+API, and during a pause or a stop on refused credentials. When BSB-LAN
+does not answer it either, the next commands do not try again for 30
+seconds ("did not answer a command a few seconds ago"); protective
+commands are never held by that. Such a command changes neither the
+status nor the time of the next read (no reads 5 and 20 seconds later
+while the adapter is said unreachable).
 
 After "sent, without confirmation", the controller may have applied the
 value. Until 10 minutes after the last command of that setting (the

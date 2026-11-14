@@ -298,10 +298,15 @@ renvoyée. BSB-LAN est souvent lent quelques secondes après une écriture
 sous 15 secondes (la requête qu'il traite se termine d'abord), puis a
 12 secondes pour son `/JI` et sa relecture, et son écriture part juste
 après ou pas du tout ; la réponse de l'écriture et sa relecture ont au
-moins 4 secondes. Gladys reçoit toujours une réponse dans ses 5 secondes :
-une commande pas encore terminée reçoit « BSB-LAN répond lentement : la
-commande continue », et son issue suit dans les journaux (la carte
-reprend la valeur réelle si elle échoue).
+moins 3,8 secondes. Une écriture part donc au plus tard environ
+27 secondes après le clic, environ 42 secondes pour une commande qui a
+attendu derrière une autre. Gladys reçoit une réponse au plus tard
+4,2 secondes après le clic : une commande pas encore terminée reçoit
+« BSB-LAN répond lentement : la commande continue », et son issue suit
+dans les journaux (la carte reprend la valeur réelle si elle échoue).
+Tant que son écriture n'est pas partie, une valeur plus récente du même
+réglage la remplace : elle n'est pas envoyée (« remplacée par une valeur
+plus récente », ligne d'information), la plus récente l'est.
 BSB-LAN accepte une écriture par un statut 1 ; l'intégration **relit alors
 le paramètre** et n'annonce un succès que si la relecture montre la valeur
 demandée (encore l'ancienne : « relue juste après, encore la précédente » ;
@@ -323,19 +328,25 @@ protection n'attendent jamais derrière elle.
 
 Après une commande refusée avant de partir, annulée, abandonnée ou relue
 inchangée, la carte reprend tout de suite la valeur lue (sinon Gladys
-garde la valeur saisie). Une exception : une commande précédente du même
-réglage est encore « envoyée, sans confirmation » et ce réglage n'a pas
-été relu depuis ; la carte attend alors la première lecture.
+garde la valeur saisie). Deux exceptions : une commande précédente du
+même réglage est encore « envoyée, sans confirmation » et ce réglage n'a
+pas été relu depuis ; ou BSB-LAN est dans son délai de nouvel essai
+(ci-dessous) et n'a pas répondu non plus à la commande, donc aucune
+valeur n'est connue. La carte attend alors la première lecture.
 
 Après une lecture en échec (BSB-LAN n'a pas répondu à temps), la lecture
 suivante attend le délai de nouvel essai, jamais plus court que
 l'intervalle de lecture (10 minutes avec un intervalle de 10 minutes).
 Une commande pendant ce temps n'est pas refusée pour cela seul : elle
-relit elle-même l'adaptateur (`/JI`, puis la relecture) et ne part que si
-l'adresse MAC est celle de l'appareil. Elle reste refusée après une
-lecture qui a donné un autre adaptateur, pas d'adresse MAC ou pas d'API
-JSON, et pendant une pause ou un arrêt sur identifiants refusés. Une
-telle commande ne change ni le statut ni l'heure de la lecture suivante
+relit elle-même l'adaptateur (`/JI`, attendu 3 secondes au plus, puis la
+relecture) et ne part que si l'adresse MAC est celle de l'appareil.
+Refusée après cette relecture, sa carte reprend la valeur relue. Elle
+reste refusée après une lecture qui a donné un autre adaptateur, pas
+d'adresse MAC ou pas d'API JSON, et pendant une pause ou un arrêt sur
+identifiants refusés. Si BSB-LAN ne lui répond pas non plus, les
+commandes suivantes ne réessaient pas pendant 30 secondes (« n'a pas
+répondu à une commande il y a quelques secondes ») ; les commandes de
+protection n'en sont jamais retenues. Une telle commande ne change ni le statut ni l'heure de la lecture suivante
 (pas de lectures 5 et 20 secondes après tant que l'adaptateur est dit
 injoignable).
 

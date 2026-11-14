@@ -17,20 +17,28 @@ the notes of the version's GitHub Release.
   read just before (timeout)", "answered too slowly"). The deadlines now
   count from the moment the command gets the adapter: 15 s to get it, then
   12 s for its `/JI` and its fresh read, the write right after or not at
-  all, at least 4 s for its answer and read back. Gladys still gets an
-  answer within 5 s: a command not over then is answered "BSB-LAN answers
-  slowly: the command goes on" (an information line in the logs) and its
-  outcome follows in the logs; the card shows the real value again if it
-  fails. Every check before the write is unchanged (the adapter's MAC, the
-  option, the hot water ceiling, the range read just before, a protective
-  command arrived since).
+  all, at least 3.8 s for its answer and read back: a write leaves at the
+  latest about 27 s after the click (about 42 s for a command that waited
+  behind another one, which never starts later than 30 s after its click).
+  Gladys gets an answer by 4.2 s (a queued command: 4.0 s, was 4.3 s): a
+  command not over then is answered "BSB-LAN answers slowly: the command
+  goes on" (an information line in the logs) and its outcome follows in
+  the logs; the card shows the real value again if it fails. Until its
+  write leaves, a newer value of the same setting replaces it (never the
+  older value written after the newer click). Every check before the write
+  is unchanged (the adapter's MAC, the option, the hot water ceiling, the
+  range read just before, a protective command arrived since); a command
+  overtaken while it waited for the adapter requests nothing.
 - After one failed read, commands were refused ("this device is not the
   adapter read now") until the next read, 10 minutes later with an
   interval of 10 minutes. A command now reads the adapter itself (`/JI`,
-  then its fresh read) and leaves only if the MAC is the device's; still
-  refused after a read that gave another adapter, no MAC or no JSON API,
-  and during a pause or a stop on refused credentials. The next read keeps
-  its time.
+  waited 3 s at most, then its fresh read) and leaves only if the MAC is
+  the device's; refused after that read, its card shows the value read.
+  Still refused after a read that gave another adapter, no MAC or no JSON
+  API, and during a pause or a stop on refused credentials. When BSB-LAN
+  does not answer it either, commands do not try again for 30 s
+  (protective commands are never held by that). The next read keeps its
+  time.
 - A Protection or hot water Off clicked during a command no longer waits
   for the rest of that command: the command stops before its next request
   (after its `/JI`, or before the read back of its write, then "sent,
