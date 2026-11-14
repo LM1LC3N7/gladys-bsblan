@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.3.4] - 2026-11-14
+
 ### Fixed
 
 - Commands refused on a BSB-LAN that is slow after a write (forum t/11458
@@ -282,7 +284,8 @@ the notes of the version's GitHub Release.
 - "Test the connection" button; documentation in English and French;
   `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.0...v0.3.1
