@@ -49,8 +49,8 @@ up to date at the end of every milestone.
   controllers may expose 716 as "---" (then every heating setpoint command
   is refused "range missing").
 - **Latency**: a /JQ of 4 parameters on the bus; a command needs its fresh
-  read (1 or 3 parameters) and the write within 3.5 s. Too slow on a busy
-  LPB → commands refused "too slow"; measure.
+  read (1 to 5 parameters) within 12 s of getting the adapter (0.3.4; was
+  3.5 s from the click, too short after a write on XDECO's adapter).
 - **Units**: `°C`, `&deg;C`, `&#176;C`, and the mojibake (U+00C2 U+00B0 C) of the
   python-bsblan fixtures are all read as °C; an empty unit too.
 - **8820**: 0 off, 255 on (python-bsblan fixture); other non-zero values
@@ -448,3 +448,46 @@ up to date at the end of every milestone.
       cause every second (3 + 1, again after a return), empty message on two outages (2 + 2).
       Mutants J1-J6, P1/P3/P6 redone. Reviewer's g4/g5 replayed: PASS.
 - [x] n1: "(retried every second; a new cause is logged once more, 3 at most)".
+
+## 0.3.4 (XDECO, t/11458 n° 11: BSB-LAN 5.1.42, ESP32 Wi-Fi, 2 circuits, no other client)
+
+Measured by him: 0.25 s per parameter at rest (peaks 1.1 s), /JQ of 12 parameters 2.6-3.5 s; after a
+write 1-2 s per read for about 10 s. `hc2-setpoint` refused "could not be read just before (timeout)"
+9.9 s after a write, "answered too slowly", and after one poll timeout "this device is not the
+adapter read now" for the whole backoff (600 s with a 600 s interval). His analysis checked in the
+code: right (3.5 s from arrival, 2.5 s read budget holding /JI + /JQ of 5 parameters plus the wait
+for a poll request in flight; `checkBeforeSend` on `live`).
+
+- [x] Budgets from getting the adapter: `commandStartWait` 15 s from arrival (or dequeue; above the
+      15 s of a poll request, so in practice only a protective queue can make it late),
+      `commandReadMax` 12 s for /JI + fresh read, the write within 0.3 s of that, its answer and read
+      back until max(4.3 s after the click, 4 s after the write leaves) (`commandConfirmMax`): the
+      fast path keeps its 4.3 s outcomes.
+- [x] Ack decoupled (`ackBy`, shared with the queue): a direct command not over by 4.5 s
+      (`commandAckMargin` 200 ms after the 4.3 s deadlines, so those settle first) answers
+      `ERRORS.goingOn` (pending, notice `goingOn` logged as info), its outcome logged later
+      ("(going on): done" as info, a failure as a warning) and `afterFailure` then. The queued path
+      logs "(queued): done" too.
+- [x] `commandable` replaces `live` in the command checks: online, or offline after a passing failure
+      (`HELD`: never after `noMac`, `version`, `busy`, `auth`) with an identified adapter (`mac`,
+      `values`, `info`; another MAC read drops `mac`). The command's own /JI must show the device's
+      MAC. It changes neither `online`, the status nor the next poll; no follow-up reads while
+      offline (M2 kept).
+- [x] A protective click frees the adapter sooner: the command checks `stopEpoch` after its /JI
+      (refused "overtaken") and before its read back ("sent, without confirmation (not read back: a
+      protective command first)"); after its fresh read `checkBeforeSend` did already.
+- Not done, from his proposals: a second try of the fresh read (HTTP never retried; a timeout leaves
+  no time in the budget, the longer budget covers his case); skipping /JI when identified recently
+  (the MAC is checked before every command: kept, /JI does not query the bus); a backoff shorter than
+  the interval (never read sooner than the interval: kept, commands no longer depend on it);
+  configurable budgets (one more manifest key for a timing the code can size).
+- Tests: `test/slow.test.js` (11, XDECO timings: queued after a write, 9.9 s after a write with a
+  follow-up poll in flight, budget over 12 s, budget from getting the adapter, poll timeout with a
+  600 s interval then a command, another MAC during the backoff, a failure of the command itself,
+  no MAC and pause still refused, Protection during the /JI and during the write, a late write's 4 s);
+  real clock x1 in `test/realclock.test.js`. Updated: the slow fresh read (13 s), I1 shared budget
+  (6.5 + 6.5 s), Q13 and R3 (the outcome after "going on"), unreachable then a command (its own /JI),
+  r3 I1 real clock (/JS 300 ms, answered before the 450 ms ack).
+- Mutants B1-B10 in `scripts/mutants.mjs` (L2, L7 anchors moved to `ackBy`).
+- To check on his adapter: the outcome lines "(going on): done" after a write; whether a poll
+  request still times out (15 s) when BSB-LAN is slow; if so, the commands now pass anyway.

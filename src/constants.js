@@ -137,15 +137,31 @@ export const TIMINGS = {
   /** The button waits 30 s in Gladys: it answers by 25 s, the read going on if longer. */
   testBudget: 25 * SECOND,
   /**
-   * Commands (Gladys waits 5 s for the ack): the fresh read and the write
-   * must leave by 3.5 s after the click, or the command is refused unsent;
-   * the answer is awaited until 4.3 s, after which the command is "sent,
-   * without confirmation".
+   * Gladys waits 5 s for the ack: a command answers by 4.3 s after the
+   * click. A command not over then goes on in the background ("going on",
+   * its outcome in the log, 0.3.4). A protective command is queued by
+   * 3.5 - 0.3 s and its write is "sent, without confirmation" past 4.3 s
+   * after it got the adapter.
    */
   commandSendBy: 3_500,
   commandAnswerBy: 4_300,
-  /** The fresh read of a command: 2.5 s at most, and 0.3 s left to send after it. */
-  commandReadMax: 2_500,
+  /**
+   * A command not queued answers "going on" this much after 4.3 s: its own
+   * deadlines at 4.3 s (a write without answer) settle it first (4.5 s,
+   * Gladys waits 5 s).
+   */
+  commandAckMargin: 200,
+  /**
+   * A command (0.3.4, XDECO t/11458 n° 11: after a write, BSB-LAN takes 1 to
+   * 2 s per parameter for about 10 s): it gets the adapter within 15 s of
+   * its arrival (or of leaving the queue), else it is refused unsent; from
+   * then, its /JI and its fresh read have 12 s, the write leaves within
+   * 0.3 s of that, and its answer and read back last until 4.3 s after the
+   * click, and at least 4 s after the write leaves.
+   */
+  commandStartWait: 15 * SECOND,
+  commandReadMax: 12 * SECOND,
+  commandConfirmMax: 4 * SECOND,
   commandMinRead: 300,
   commandMinSend: 300,
   /** After a write that may have left, the next command waits this long (queued, 0.3.1). */

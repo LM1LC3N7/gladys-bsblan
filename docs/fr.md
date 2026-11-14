@@ -185,7 +185,8 @@ autre commande, sans relecture préalable, et depuis un mode inconnu. Ils
 passent avant toute requête en attente et annulent les commandes pas
 encore parties (« une commande de protection est arrivée après »). BSB-LAN
 ne sert qu'une requête à la fois : ils attendent la fin de celle qu'il
-traite. S'il est encore occupé au bout de 3,5 s, Gladys répond « la commande
+traite (une commande en cours s'arrête là, avant sa requête suivante).
+S'il est encore occupé au bout de 3,5 s, Gladys répond « la commande
 passe en tête et part dès qu'il est libre » et l'envoie dès que possible
 (sous 30 s).
 
@@ -292,8 +293,15 @@ seule ; aucune
 autre requête ne passe entre cette relecture et l'écriture, et l'option (et
 le plafond) est revérifiée juste avant l'envoi. Si une valeur ou la plage
 manque, la commande est refusée. Une valeur déjà en place n'est pas
-renvoyée. Une commande qui ne peut pas partir dans les 3,5 secondes est
-refusée sans être envoyée ; Gladys reçoit la réponse dans ses 5 secondes.
+renvoyée. BSB-LAN est souvent lent quelques secondes après une écriture
+(1 à 2 secondes par paramètre lu). Une commande obtient donc l'adaptateur
+sous 15 secondes (la requête qu'il traite se termine d'abord), puis a
+12 secondes pour son `/JI` et sa relecture, et son écriture part juste
+après ou pas du tout ; la réponse de l'écriture et sa relecture ont au
+moins 4 secondes. Gladys reçoit toujours une réponse dans ses 5 secondes :
+une commande pas encore terminée reçoit « BSB-LAN répond lentement : la
+commande continue », et son issue suit dans les journaux (la carte
+reprend la valeur réelle si elle échoue).
 BSB-LAN accepte une écriture par un statut 1 ; l'intégration **relit alors
 le paramètre** et n'annonce un succès que si la relecture montre la valeur
 demandée (encore l'ancienne : « relue juste après, encore la précédente » ;
@@ -306,7 +314,7 @@ deux écritures. Une commande qui arrive pendant une autre (ou dans ces 3
 secondes) **attend** et part après elle, avec sa propre relecture et
 toutes les vérifications à nouveau (l'option, le plafond de l'eau chaude,
 la plage, une pause, l'adaptateur) ; Gladys répond alors « celle-ci attend
-et part après elle ». Celle qui ne peut pas partir sous 30 secondes est
+et part après elle ». Celle qui ne peut pas commencer sous 30 secondes est
 abandonnée, non envoyée. Une seule attend par réglage : une valeur plus
 récente du même réglage la remplace. Une Protection ou une eau chaude à
 l'arrêt arrivée après elle l'annule (jamais envoyée après une commande de
@@ -318,6 +326,18 @@ inchangée, la carte reprend tout de suite la valeur lue (sinon Gladys
 garde la valeur saisie). Une exception : une commande précédente du même
 réglage est encore « envoyée, sans confirmation » et ce réglage n'a pas
 été relu depuis ; la carte attend alors la première lecture.
+
+Après une lecture en échec (BSB-LAN n'a pas répondu à temps), la lecture
+suivante attend le délai de nouvel essai, jamais plus court que
+l'intervalle de lecture (10 minutes avec un intervalle de 10 minutes).
+Une commande pendant ce temps n'est pas refusée pour cela seul : elle
+relit elle-même l'adaptateur (`/JI`, puis la relecture) et ne part que si
+l'adresse MAC est celle de l'appareil. Elle reste refusée après une
+lecture qui a donné un autre adaptateur, pas d'adresse MAC ou pas d'API
+JSON, et pendant une pause ou un arrêt sur identifiants refusés. Une
+telle commande ne change ni le statut ni l'heure de la lecture suivante
+(pas de lectures 5 et 20 secondes après tant que l'adaptateur est dit
+injoignable).
 
 Après « envoyée, sans confirmation », le régulateur a pu appliquer la
 valeur. Jusqu'à 10 minutes après la dernière commande de ce réglage
@@ -361,13 +381,14 @@ comme les écrit le journal du SDK des intégrations Gladys.
   traite une requête à la fois. Si BSB-LAN publie en MQTT vers un broker
   (par exemple pour Home Assistant), la charge sur l'adaptateur peut faire
   échouer les commandes de Gladys (délais dépassés : « répondu trop
-  lentement », « envoyée, sans confirmation (timeout) » ; ces messages le
-  rappellent alors). Désactivez le MQTT sur BSB-LAN, ou allégez-le
+  lentement », « n'a pas pu être relue juste avant (timeout) », « envoyée,
+  sans confirmation (timeout) » ; ces messages le rappellent alors). Désactivez le MQTT sur BSB-LAN, ou allégez-le
   (intervalle plus long, moins de paramètres), et gardez un intervalle de
   lecture raisonnable dans Gladys (30 s ou plus). Constaté sur une vraie
-  installation : MQTT désactivé et 30 s, toutes les commandes passent. Les
-  délais des commandes et les 3 s entre deux écritures ne changent pas
-  (ils protègent le chauffage).
+  installation : MQTT désactivé et 30 s, toutes les commandes passent.
+  Depuis la 0.3.4, les délais des commandes comptent à partir du moment où
+  la commande obtient l'adaptateur (voir « Comment une commande part ») ;
+  les 3 s entre deux écritures restent (elles protègent le chauffage).
 - **« The state could not be saved in /data (EACCES) »** dans les journaux,
   et « /data n'est pas accessible en écriture » dans le statut (dit dès le
   démarrage : un fichier d'essai est écrit puis supprimé au lancement,

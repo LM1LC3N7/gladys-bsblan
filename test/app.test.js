@@ -492,17 +492,21 @@ test('a write that never left is "not sent"; a 5xx after it left is unconfirmed'
   assert.match((await command('mode', 'comfort')).error, /en pause/);
 });
 
-test('a slow fresh read is refused unsent within 5 s', async (t) => {
+test('a fresh read slower than 12 s is refused unsent; Gladys gets "going on" within 5 s', async (t) => {
   let slow = false;
   const bsb = fakeBsbLan({
-    behave: (request) => (slow && request.endpoint === '/JQ' ? { delay: 10 * SECOND } : undefined),
+    behave: (request) => (slow && request.endpoint === '/JQ' ? { delay: 13 * SECOND } : undefined),
   });
-  const { command } = await setup(t, { bsb, config: ALLOWED });
+  const logs = [];
+  const { command, advance } = await setup(t, { bsb, config: ALLOWED, logs });
   slow = true;
   const ack = await command('mode', 'reduced', { wait: 4_900 });
   assert.ok(ack, 'answered within 5 s');
-  assert.match(ack.error, /trop lentement|relue juste avant/);
-  assert.match(ack.error, /MQTT/, 'the hint about a busy adapter');
+  assert.match(ack.error, /répond lentement.*la commande continue/);
+  await advance(8 * SECOND);
+  const outcome = logs.find((l) => /mode reduced \(going on\):/.test(l));
+  assert.ok(outcome, `the outcome is logged: ${logs.join(' | ')}`);
+  assert.match(outcome, /\(timeout\).*MQTT/);
   assert.deepEqual(bsb.writes(), []);
 });
 
@@ -666,7 +670,14 @@ test('BSB-LAN unreachable: status, badge, mode text; retried after 30 s, 1, 2, 5
   assert.equal(bsb.requests.length, count);
   await advance(2 * SECOND);
   assert.equal(bsb.requests.length, count + 1);
-  assert.match((await command('mode', 'reduced')).error, /pas l'adaptateur lu actuellement/);
+  // 0.3.4: the adapter was identified, the failure is a passing one: the
+  // command tries its own /JI (never a whole backoff of refusals), not sent.
+  assert.match(
+    (await command('mode', 'reduced')).error,
+    /relue juste avant \(unreachable\) : commande non envoyée/,
+  );
+  assert.equal(bsb.requests.at(-1).endpoint, '/JI', 'its own /JI, nothing after it');
+  assert.deepEqual(bsb.writes(), []);
   bsb.down = false;
   await advance(MINUTE + 3 * SECOND);
   assert.equal(gladys.fake.connectionStatus.connected, true);

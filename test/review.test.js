@@ -97,18 +97,20 @@ test('I1 (H15b): another adapter at the address between two polls: never written
 test('I1: the /JI and the fresh read share the read budget', async (t) => {
   let slow = false;
   const bsb = fakeBsbLan({
-    // 1.5 s for the /JI, 1.5 s for the read: 3 s, above the 2.5 s budget.
+    // 6.5 s for the /JI, 6.5 s for the read: 13 s, above the 12 s budget (0.3.4).
     behave: (request) =>
       slow && (request.endpoint === '/JI' || request.ids.length === 1)
-        ? { delay: 1_500 }
+        ? { delay: 6_500 }
         : undefined,
   });
   const s = await setup(t, { bsb });
   slow = true;
   const ack = await s.command('mode', 'reduced', { wait: 4_900 });
   assert.ok(ack, 'answered within 5 s');
-  assert.match(ack.error, /trop lentement|relue juste avant/);
+  assert.match(ack.error, /la commande continue/);
+  await s.advance(10 * SECOND);
   assert.deepEqual(jsRequests(bsb), []);
+  assert.equal(s.app.inFlight, undefined, 'over, unsent');
 });
 
 test('I2 (H19): a ceiling lowered while the connection of the write opens stops it', async (t) => {

@@ -361,8 +361,12 @@ export const ERRORS = {
     'BSB-LAN est en pause (identifiants refusés, ou occupé) : non envoyée.',
   ),
   queued: both(
-    'Another command to BSB-LAN is running: this one waits and is sent after it, with the same checks (dropped if it cannot leave within 30 s). The card shows the real value again if it fails.',
-    'Une autre commande vers BSB-LAN est en cours : celle-ci attend et part après elle, avec les mêmes vérifications (abandonnée si elle ne peut pas partir sous 30 s). La carte reprend la valeur réelle si elle échoue.',
+    'Another command to BSB-LAN is running: this one waits and is sent after it, with the same checks (dropped if it cannot start within 30 s). The card shows the real value again if it fails.',
+    'Une autre commande vers BSB-LAN est en cours : celle-ci attend et part après elle, avec les mêmes vérifications (abandonnée si elle ne peut pas commencer sous 30 s). La carte reprend la valeur réelle si elle échoue.',
+  ),
+  goingOn: both(
+    'BSB-LAN answers slowly (it often does for a few seconds after a write): the command goes on, with the same checks before it leaves (sent within about 30 s, or not at all). The card shows the real value again if it fails.',
+    "BSB-LAN répond lentement (c'est fréquent quelques secondes après une écriture) : la commande continue, avec les mêmes vérifications avant de partir (envoyée sous 30 s environ, ou pas du tout). La carte reprend la valeur réelle si elle échoue.",
   ),
   queuedTooOld: both(
     'This command waited more than 30 s behind the others: dropped, not sent.',

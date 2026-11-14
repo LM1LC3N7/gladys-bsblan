@@ -476,7 +476,7 @@ const appliedNoAnswer = (bsb, id) => (r) => {
 
 test('r032 I1 (Q13): a command in the middle of a poll, applied, unanswered: never the value read before', async (t) => {
   const bsb = fakeBsbLan({ params: fullParams() });
-  const { gladys, advance, click } = await setup(t, { bsb });
+  const { app, gladys, advance, click } = await setup(t, { bsb });
   // Slow reads (0.7 s each): a periodic poll lasts several seconds, the
   // command passes between two of its batches.
   let pollStarted = false;
@@ -499,7 +499,10 @@ test('r032 I1 (Q13): a command in the middle of a poll, applied, unanswered: nev
   const before = statesOf(gladys, 'heating-setpoint').length;
   const box = click('heating-setpoint', 21);
   await advance(4_500);
-  assert.match(box.ack.error, /sans confirmation \(timeout\)/);
+  // 0.3.4: the write left after the fresh read (1.4 s): 4 s for its answer.
+  assert.match(box.ack.error, /la commande continue/);
+  await advance(1_500);
+  assert.equal(app.inFlight, undefined, 'over: sent, without confirmation (timeout)');
   assert.equal(bsb.params[710].value, '21.0', 'applied');
   // The poll ends with the values read before the write (its batch 1 and
   // the fresh read of the command): 20 is not forced to the card.
@@ -752,22 +755,30 @@ test('r032 r2 I1 (R3, slow adapter): applied, unanswered, the same setting refus
   }
   assert.match(a.ack.error, /sans confirmation/);
   assert.equal(bsb.params[710].value, '21.0', 'applied');
-  // Let the write and its follow-up end, then slow reads (3 s each): a poll
-  // holds the adapter, the second command cannot read 710 in time.
+  // Let the write and its follow-up end, then slow reads (13 s each): a poll
+  // holds the adapter, the second command cannot read 710 within its 12 s
+  // (0.3.4): "going on" at 4.5 s, then refused unsent.
   await advance(3 * SECOND);
-  bsb.behave = (r) => (r.endpoint === '/JQ' ? { delay: 3_000 } : undefined);
-  const poll = app.tick();
+  bsb.behave = (r) => (r.endpoint === '/JQ' ? { delay: 13_000 } : undefined);
+  let polled = false;
+  const poll = app.tick().finally(() => (polled = true));
   await advance(200);
   const b = click('heating-setpoint', 22);
   for (let i = 0; i < 100 && !b.ack; i += 1) {
     await advance(100);
   }
-  assert.match(b.ack.error, /non envoyée/);
+  assert.match(b.ack.error, /la commande continue/);
+  for (let i = 0; i < 300 && app.inFlight; i += 1) {
+    await advance(100);
+  }
+  assert.equal(app.inFlight, undefined, 'refused before its fresh read ended');
   assert.notEqual(bsb.params[710].value, '22', 'never sent');
   const atRefusal = statesOf(gladys, 'heating-setpoint').slice(before);
   assert.ok(!atRefusal.includes(20), `never 20 at the refusal: ${atRefusal}`);
   bsb.behave = undefined;
-  await advance(10 * SECOND);
+  for (let i = 0; i < 600 && !polled; i += 1) {
+    await advance(100);
+  }
   await poll;
   await advance(60 * SECOND, 500);
   const after = statesOf(gladys, 'heating-setpoint').slice(before);

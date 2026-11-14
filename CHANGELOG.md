@@ -10,6 +10,32 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Commands refused on a BSB-LAN that is slow after a write (forum t/11458
+  n° 11: 1 to 2 s per parameter for about 10 s after a write, "could not be
+  read just before (timeout)", "answered too slowly"). The deadlines now
+  count from the moment the command gets the adapter: 15 s to get it, then
+  12 s for its `/JI` and its fresh read, the write right after or not at
+  all, at least 4 s for its answer and read back. Gladys still gets an
+  answer within 5 s: a command not over then is answered "BSB-LAN answers
+  slowly: the command goes on" (an information line in the logs) and its
+  outcome follows in the logs; the card shows the real value again if it
+  fails. Every check before the write is unchanged (the adapter's MAC, the
+  option, the hot water ceiling, the range read just before, a protective
+  command arrived since).
+- After one failed read, commands were refused ("this device is not the
+  adapter read now") until the next read, 10 minutes later with an
+  interval of 10 minutes. A command now reads the adapter itself (`/JI`,
+  then its fresh read) and leaves only if the MAC is the device's; still
+  refused after a read that gave another adapter, no MAC or no JSON API,
+  and during a pause or a stop on refused credentials. The next read keeps
+  its time.
+- A Protection or hot water Off clicked during a command no longer waits
+  for the rest of that command: the command stops before its next request
+  (after its `/JI`, or before the read back of its write, then "sent,
+  without confirmation").
+
 ## [0.3.3] - 2026-11-10
 
 ### Changed

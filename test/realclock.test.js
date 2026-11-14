@@ -28,7 +28,11 @@ async function fakeAdapter({ latencyMs = 2, delayOf = () => 0 } = {}) {
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       const url = new URL(req.url, 'http://x');
-      hits.push({ path: url.pathname, at: Date.now() });
+      hits.push({
+        path: url.pathname,
+        ids: url.searchParams.get('Parameter') ?? '',
+        at: Date.now(),
+      });
       let out;
       if (url.pathname === '/JI') {
         out = info5_0_111(0);
@@ -386,7 +390,8 @@ test('real clock (r3 I1): a kept stop rejected in the queue by stop() is never t
 
 test('real clock (r3 I1): a write in flight when stop() is called arms no read and no timer', async () => {
   const { adapter, timers, app, set, config } = await stoppable({
-    delayOf: (hit) => (hit.path === '/JS' ? 600 : 0),
+    // Answered before the 4.5 s "going on" ack (450 ms here, 0.3.4).
+    delayOf: (hit) => (hit.path === '/JS' ? 300 : 0),
   });
   let left;
   let hits;
@@ -594,4 +599,67 @@ test('real clock, x10, 20 pairs (0.3.1): two setpoints back to back, the second 
       `writes ${k - 1}/${k}: ${writes[k] - writes[k - 1]} ms`,
     );
   }
+});
+
+test('real clock, x1 (0.3.4, XDECO n° 11): slow reads for 8 s after a write, a queued setpoint still leaves and is read back', async () => {
+  let slowUntil = 0;
+  const adapter = await fakeAdapter({
+    delayOf: (hit) => {
+      const slow = Date.now() < slowUntil;
+      if (hit.path === '/JS') {
+        slowUntil = Date.now() + 800 + 8_000;
+        return 800;
+      }
+      if (!slow) {
+        return 0;
+      }
+      if (hit.path === '/JI') {
+        return 500;
+      }
+      // 1 s per parameter.
+      return hit.path === '/JQ' ? 1_000 * hit.ids.split(',').length : 0;
+    },
+  });
+  const gladys = createFakeGladys({ config: {} });
+  await gladys.connect();
+  const app = new BsbLanApp({ gladys, logger, store: memoryStore() });
+  const device = { external_id: `ext:test:bsblan:${CAPTURE_MAC_ID}` };
+  const ids = gladys.externalIds('bsblan', CAPTURE_MAC_ID);
+  const set = (value) =>
+    within(
+      app.setValue(device, { external_id: ids.feature('heating-setpoint') }, value),
+      6_000,
+      `setpoint ${value}`,
+    ).then(
+      () => 'ok',
+      (err) => err.message,
+    );
+  let first;
+  let second;
+  try {
+    await within(
+      app.start({ address: `127.0.0.1:${adapter.port}`, poll_interval: 600, allow_commands: true }),
+      10_000,
+      'start',
+    );
+    first = await set(21.5);
+    second = await set(22);
+    await waitFor(
+      () => adapter.params[710].value === '22.0' && !app.inFlight,
+      40_000,
+      '22 written',
+    );
+  } finally {
+    app.stop();
+    await adapter.close();
+  }
+  assert.equal(first, 'ok');
+  assert.match(second, /Une autre commande vers BSB-LAN est en cours/);
+  assert.deepEqual(
+    adapter.hits.filter((h) => h.write).map((h) => h.write),
+    [
+      ['710', '21.5'],
+      ['710', '22.0'],
+    ],
+  );
 });

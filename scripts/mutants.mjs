@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Mutants of the fixes for forum t/11458 n° 9 and review bsblan-032-r3 (m1, m2).
+// Mutants of the fixes for forum t/11458 n° 9 and n° 11 (0.3.4), review bsblan-032-r3 (m1, m2).
 // Each one breaks one fix; the whole suite must fail, never hang. Run one at a
 // time in a private copy of the repository (never the working tree), under a
 // RAM cap and a deadline that kills the whole process group:
@@ -32,7 +32,7 @@ const HELD =
 const MUTANTS = [
   // 1. Waiting and replaced: info, two distinct lines.
   ['L1-replaced-no-notice', 'src/app.js', '      replaced.notice = NOTICES.replaced;\n', ''],
-  ['L2-queued-no-notice', 'src/app.js', '      err.notice = NOTICES.queued;\n', ''],
+  ['L2-queued-no-notice', 'src/app.js', '      err.notice = notice;\n', ''],
   [
     'L3-no-info-on-arrival',
     'src/app.js',
@@ -60,8 +60,8 @@ const MUTANTS = [
   [
     'L7-late-path-old-warning',
     'src/app.js',
-    '        logOutcome(\n          this.logger,',
-    '        ((logger, what, err) => logger.warn(`${what}: ${err.message}`))(\n          this.logger,',
+    '          logOutcome(this.logger, what, err, what);',
+    '          this.logger.warn(`${what}: ${err.message}`);',
   ],
   [
     'L8-other-refusals-as-info',
@@ -176,6 +176,58 @@ const MUTANTS = [
     '    if (!this.capped) {\n      this.capped = true;',
     '    if (false) {\n      this.capped = true;',
   ],
+  // 0.3.4 (XDECO t/11458 n° 11): budgets from getting the adapter, "going on",
+  // a command's own try during a backoff, a Protection freed between requests.
+  [
+    'B1-read-budget-2.5s',
+    'src/constants.js',
+    'commandReadMax: 12 * SECOND,',
+    'commandReadMax: 2_500,',
+  ],
+  [
+    'B2-read-budget-from-click',
+    'src/app.js',
+    'readBy: start + TIMINGS.commandReadMax,',
+    'readBy: received + TIMINGS.commandReadMax,',
+  ],
+  [
+    'B3-start-wait-2.2s',
+    'src/app.js',
+    '{ startBy: received + TIMINGS.commandStartWait }',
+    '{ startBy: received + 2_200 }',
+  ],
+  ['B4-confirm-from-click-only', 'src/app.js', 'this.now() + TIMINGS.commandConfirmMax,', '0,'],
+  [
+    'B5-refused-during-backoff',
+    'src/app.js',
+    'if (generation !== this.generation || !this.commandable || mac !== this.adapter.mac) {',
+    'if (generation !== this.generation || !this.live || mac !== this.adapter.mac) {',
+  ],
+  [
+    'B6-tries-after-no-mac',
+    'src/app.js',
+    "const HELD = new Set(['noMac', ",
+    'const HELD = new Set([',
+  ],
+  [
+    'B7-no-yield-after-ji',
+    'src/app.js',
+    '      if (epoch !== this.stopEpoch) {\n        throw this.refusal(ERRORS.overtaken);\n      }\n      // What /JI',
+    '      // What /JI',
+  ],
+  [
+    'B8-read-back-before-protection',
+    'src/app.js',
+    'if (!protective && epoch !== this.stopEpoch) {',
+    'if (false) {',
+  ],
+  [
+    'B9-going-on-as-warning',
+    'src/notices.js',
+    '    logger?.info(`${what} ${LINES[NOTICES.goingOn]}`);',
+    '    logger?.warn(`${what} ${LINES[NOTICES.goingOn]}`);',
+  ],
+  ['B10-no-ack-margin', 'src/app.js', 'received + TIMINGS.commandAckMargin,', 'received,'],
 ];
 
 function apply(file, from, to) {

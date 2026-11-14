@@ -173,7 +173,8 @@ during a pause (429/5xx), after refused credentials, during another
 command, without a fresh read, and from an unknown mode. They pass before
 every queued request and cancel the commands not sent yet ("a protective
 command came after this one"). BSB-LAN serves one request at a time: they
-wait for the end of the one it serves. Still busy after 3.5 s, Gladys
+wait for the end of the one it serves (a command in progress stops there,
+before its next request). Still busy after 3.5 s, Gladys
 answers "the command is queued first and leaves as soon as it is free" and
 sends it as soon as possible (within 30 s).
 
@@ -270,9 +271,16 @@ IP address is never commanded). Then it **reads again** the current value
 and the range the controller allows, and decides on that read only; no other
 request runs between that read and the write, and the option (and the
 ceiling) is checked again right before the request leaves. A missing value
-or range refuses the command. A value already in place is not sent again. A
-command that cannot leave within 3.5 seconds is refused unsent; Gladys gets
-its answer within its 5 seconds. BSB-LAN accepts a write with a status 1;
+or range refuses the command. A value already in place is not sent again.
+BSB-LAN is often slow for a few seconds after a write (1 to 2 seconds per
+parameter read). So a command gets the adapter within 15 seconds (the
+request it is serving ends first), then has 12 seconds for its `/JI` and
+its fresh read, and its write leaves right after them or not at all; the
+answer of the write and its read back have at least 4 seconds. Gladys
+always gets an answer within its 5 seconds: a command not over by then is
+answered "BSB-LAN answers slowly: the command goes on" and its outcome
+follows in the logs (the card shows the real value again if it fails).
+BSB-LAN accepts a write with a status 1;
 the integration **then reads the parameter again** and says success only
 when that read shows the value asked (still the previous one: "read again
 just after, still the previous one"; not read in time: "sent, without
@@ -284,7 +292,7 @@ between two writes. A command that arrives while another one runs (or
 within those 3 seconds) **waits** and leaves after it, with its own
 fresh read and every check again (the option, the hot water ceiling, the
 range, a pause, the adapter); Gladys then answers "this one waits and is
-sent after it". One that cannot leave within 30 seconds is dropped, not
+sent after it". One that cannot start within 30 seconds is dropped, not
 sent. At most one waits per setting: a newer value of the
 same setting replaces it. A Protection or hot water Off that arrives after
 it drops it (never sent after a protective command), and so does a
@@ -294,6 +302,16 @@ unchanged, the card shows the value read again at once (Gladys otherwise
 keeps the value typed). The exception: an earlier command of the same
 setting is still "sent, without confirmation" and that setting was not
 read since; then the card waits for the first read.
+
+After a failed read (BSB-LAN did not answer in time), the next read waits
+for the retry delay, never shorter than the refresh interval (10 minutes
+with an interval of 10 minutes). A command meanwhile is not refused for
+that alone: it reads the adapter itself (`/JI`, then the fresh read) and
+leaves only if the MAC address is the device's. It is still refused after
+a read that gave another adapter, no MAC address or no JSON API, and
+during a pause or a stop on refused credentials. Such a command changes
+neither the status nor the time of the next read (no reads 5 and 20
+seconds later while the adapter is said unreachable).
 
 After "sent, without confirmation", the controller may have applied the
 value. Until 10 minutes after the last command of that setting (the
@@ -333,13 +351,15 @@ the same), then "Sending to Gladys works again". The times of the log lines are 
 - **Commands failing when BSB-LAN also publishes in MQTT**: the adapter
   serves one request at a time. If BSB-LAN publishes in MQTT to a broker
   (for Home Assistant, for example), that load can make the commands of
-  Gladys run out of time ("answered too slowly", "sent, without
-  confirmation (timeout)"; these messages then remind it). Turn MQTT off in
+  Gladys run out of time ("answered too slowly", "could not be read just
+  before (timeout)", "sent, without confirmation (timeout)"; these messages
+  then remind it). Turn MQTT off in
   BSB-LAN, or lighten it (a longer interval, fewer parameters), and keep a
   reasonable refresh interval in Gladys (30 s or more). Seen on a real
-  installation: with MQTT off and 30 s, every command went through. The
-  deadlines of the commands and the 3 s between two writes stay as they
-  are (they protect the heating).
+  installation: with MQTT off and 30 s, every command went through. Since
+  0.3.4 the deadlines of the commands count from the moment a command gets
+  the adapter (see "How a command leaves"); the 3 s between two writes
+  stay (they protect the heating).
 - **"The state could not be saved in /data (EACCES)"** in the logs, and
   "/data is not writable" in the status (said from the start: a test file
   is written then removed when the integration starts, the state itself is

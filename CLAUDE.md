@@ -92,7 +92,10 @@ scripts/mutants.mjs          mutants of the fixes, run one at a time in a privat
   off" must not reach them); refused unless `allow_commands` (checked on
   arrival, after the fresh read and right before the request leaves);
   decided on a fresh read only, bounded by the range the controller reads
-  then, refused when a value is missing; never sent after 3.5 s; a write
+  then, refused when a value is missing; the adapter got within 15 s of
+  arrival (or of leaving the queue), /JI + fresh read within 12 s of that,
+  the write right after, else refused unsent; the ack by 4.5 s at most
+  ("going on", outcome logged: 0.3.4); a write
   without status 1 is "sent, without confirmation"; a success only when a
   read back shows the value; never retried; one at a time; the ack never
   waits for Gladys. Never leave an unknown mode (except to Protection).
