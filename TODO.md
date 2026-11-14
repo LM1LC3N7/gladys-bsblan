@@ -518,3 +518,17 @@ for a poll request in flight; `checkBeforeSend` on `live`).
       written in docs and CHANGELOG (27 s direct). Test.
 - [x] m5: `checkBeforeSend` at the start of the session: nothing requested once overtaken or replaced.
 - Mutants C1-C12 (and the anchors of B3, B7, L1 moved) in `scripts/mutants.mjs`.
+
+## 0.3.4 r3 (review bsblan-034-r2, d7dcf8f: REFUSED, 1 I + 2 m)
+
+- [x] J1: `offlineFresh` cleared by any failed read (`failed()`), a halt (pause, stop on the
+      credentials: `halted()`), a failed own try (its `catch`) and a good read: only a read made by a
+      command since the last failed request is ever shown, never one from before a failure (S11 of
+      the reviewer, 2 h of outage). Tests: S11, a failed own try, a failed poll then a refusal before
+      any request, a stop on refused credentials, a good read. Mutants D3-D6.
+- [x] n1: N4 (D1): the fake transport now runs `beforeSend` again after a `{ connect }` delay, as
+      the real one; a newer value arriving while the write connects stops it. N8 (D2): the 30 s hold
+      ends as soon as a read succeeds (interval 30 s).
+- [x] n2: `docs/fr.md` lines reflowed.
+- The reviewer's scenario q-032r2 R3 is not in the repository; its counterpart in
+  `test/queue.test.js` (R3) was already rewritten in 0.3.4 (13 s reads: refused after "going on").

@@ -239,37 +239,59 @@ export function fakeBsbLan({
         setTimeout(() => reject(new BsbError(CODES.LATE)), options.sendWithin);
         return;
       }
-      const delay = override?.delay ?? fake.latency;
-      if (override === 'timeout' || delay >= options.timeout) {
-        setTimeout(() => reject(new BsbError(CODES.TIMEOUT, { sent: true })), options.timeout);
-        return;
-      }
-      if (override === 'silent-applied') {
+      // Connected after `connect` ms (below the limit): as the real transport,
+      // the last check of a command runs again then, before the bytes leave.
+      const connect = override?.connect ?? 0;
+      if (connect > 0 && options.beforeSend) {
         setTimeout(() => {
-          answer(request);
-          reject(new BsbError(CODES.TIMEOUT, { sent: true }));
-        }, options.timeout);
+          try {
+            options.beforeSend();
+          } catch (err) {
+            err.beforeSend = true;
+            err.sent = false;
+            request.cancelled = true;
+            reject(err);
+            return;
+          }
+          respond();
+        }, connect);
         return;
       }
-      setTimeout(() => {
-        if (override?.error) {
-          reject(new BsbError(override.error, { sent: override.sent ?? false }));
-        } else if (override?.status) {
-          if (override.apply) {
-            answer(request);
-          }
-          resolve(json(override.status, override.body ?? '', override.headers));
-        } else if (override?.raw !== undefined) {
-          resolve(json(200, override.raw));
-        } else {
-          const result = answer(request);
-          if (result === 'close') {
-            reject(new BsbError(CODES.UNREACHABLE, { sent: true }));
-          } else {
-            resolve(result);
-          }
+      respond();
+
+      function respond() {
+        const delay = override?.delay ?? fake.latency;
+        if (override === 'timeout' || delay >= options.timeout) {
+          setTimeout(() => reject(new BsbError(CODES.TIMEOUT, { sent: true })), options.timeout);
+          return;
         }
-      }, delay);
+        if (override === 'silent-applied') {
+          setTimeout(() => {
+            answer(request);
+            reject(new BsbError(CODES.TIMEOUT, { sent: true }));
+          }, options.timeout);
+          return;
+        }
+        setTimeout(() => {
+          if (override?.error) {
+            reject(new BsbError(override.error, { sent: override.sent ?? false }));
+          } else if (override?.status) {
+            if (override.apply) {
+              answer(request);
+            }
+            resolve(json(override.status, override.body ?? '', override.headers));
+          } else if (override?.raw !== undefined) {
+            resolve(json(200, override.raw));
+          } else {
+            const result = answer(request);
+            if (result === 'close') {
+              reject(new BsbError(CODES.UNREACHABLE, { sent: true }));
+            } else {
+              resolve(result);
+            }
+          }
+        }, delay);
+      }
     });
   };
   return fake;

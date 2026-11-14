@@ -291,6 +291,43 @@ const MUTANTS = [
     'sendBy: start + TIMINGS.commandReadMax + TIMINGS.commandMinSend,',
     'sendBy: start + TIMINGS.commandReadMax + 30_000,',
   ],
+  // Review bsblan-034-r2.
+  [
+    'D1-replaced-not-checked-at-connect',
+    'src/app.js',
+    'beforeSend: () => this.checkBeforeSend(generation, target, wanted, epoch, arrival),',
+    'beforeSend: () => this.checkBeforeSend(generation, target, wanted, epoch, Infinity),',
+  ],
+  [
+    'D2-hold-also-online',
+    'src/app.js',
+    'if (!this.live && this.ownTryUntil > this.now()) {',
+    'if (this.ownTryUntil > this.now()) {',
+  ],
+  [
+    'D3-fresh-kept-after-good-read',
+    'src/app.js',
+    '    adapter.online = true;\n    this.offlineFresh.clear();\n',
+    '    adapter.online = true;\n',
+  ],
+  [
+    'D4-fresh-kept-after-failed-read',
+    'src/app.js',
+    "    // A command's read made before this failed read is not current any more (r034-r2 J1).\n    this.offlineFresh.clear();\n",
+    '',
+  ],
+  [
+    'D5-fresh-kept-after-failed-own-try',
+    'src/app.js',
+    '        this.ownTryUntil = this.now() + TIMINGS.ownTryRetry;\n        this.offlineFresh.clear();\n',
+    '        this.ownTryUntil = this.now() + TIMINGS.ownTryRetry;\n',
+  ],
+  [
+    'D6-fresh-kept-in-a-halt',
+    'src/app.js',
+    '    adapter.online = false;\n    this.offlineFresh.clear();\n',
+    '    adapter.online = false;\n',
+  ],
 ];
 
 function apply(file, from, to) {

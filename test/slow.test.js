@@ -572,3 +572,145 @@ test('r034 I2: a slow own try during the retry delay is answered as a retry, not
   assert.match(a.ack.error, /n'a pas répondu à la dernière lecture : la commande le relit/);
   assert.equal(s.bsb.params[710].value, '22.0');
 });
+
+// --- Review bsblan-034-r2 -------------------------------------------------------
+
+const shownOf = (s, before, role) =>
+  s.gladys.fake.states
+    .slice(before)
+    .filter((x) => x.device_feature_external_id === feature(role))
+    .map((x) => x.state);
+
+test('r034-r2 J1 (S11): a value read by an earlier command is never shown again after a failure', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  await s.advance(MINUTE);
+  let before = s.gladys.fake.states.length;
+  const a = s.click('hc2-setpoint', 26.5);
+  await s.until(() => a.ack);
+  await s.advance(2 * SECOND);
+  assert.deepEqual(shownOf(s, before, 'hc2-setpoint'), [21], 'its own read: shown');
+  // Changed on the room unit, then the adapter dies; the polls fail for 2 h.
+  s.bsb.params[1010] = { ...s.bsb.params[1010], value: '23.0' };
+  s.bsb.down = true;
+  await s.advance(2 * 60 * MINUTE, 1_000);
+  before = s.gladys.fake.states.length;
+  const b = s.click('hc2-setpoint', 22);
+  await s.until(() => b.ack);
+  await s.advance(2 * SECOND);
+  assert.match(b.ack.error, /relue juste avant/);
+  assert.deepEqual(shownOf(s, before, 'hc2-setpoint'), [], 'never 21 read 2 h ago');
+  // Held 30 s: no request, nothing shown either.
+  const c = s.click('hc2-setpoint', 22.5);
+  await s.until(() => c.ack);
+  await s.advance(2 * SECOND);
+  assert.match(c.ack.error, /il y a quelques secondes/);
+  assert.deepEqual(shownOf(s, before, 'hc2-setpoint'), []);
+});
+
+test('r034-r2 J1: a failed own try right after an own read drops that read', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  const a = s.click('hc2-setpoint', 26.5);
+  await s.until(() => a.ack);
+  s.bsb.down = true;
+  const before = s.gladys.fake.states.length;
+  const b = s.click('hc2-setpoint', 22);
+  await s.until(() => b.ack);
+  await s.advance(2 * SECOND);
+  assert.match(b.ack.error, /relue juste avant \(unreachable\)/);
+  assert.deepEqual(shownOf(s, before, 'hc2-setpoint'), []);
+});
+
+test('r034-r2 J1: a good read drops the reads of earlier commands', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  const a = s.click('hc2-setpoint', 26.5);
+  await s.until(() => a.ack);
+  assert.ok(s.app.offlineFresh.size > 0);
+  // The next read succeeds (600 s after the failed one).
+  await s.advance(11 * MINUTE, 1_000);
+  assert.equal(s.app.adapter.online, true);
+  assert.equal(s.app.offlineFresh.size, 0, 'cleared by the good read');
+});
+
+test('r034-r2 n1 (N4): a newer value arriving while the write connects stops it', async (t) => {
+  const s = await setup(t);
+  let first = true;
+  s.bsb.behave = (r) => {
+    if (r.endpoint === '/JS' && first) {
+      first = false;
+      return { connect: 1_000 };
+    }
+    return undefined;
+  };
+  const a = s.click('heating-setpoint', 22);
+  await s.until(() => s.bsb.requests.some((r) => r.endpoint === '/JS'), 2_000);
+  const b = s.click('heating-setpoint', 23);
+  await s.until(() => a.ack && b.ack && !s.app.inFlight && s.app.waiting.size === 0, 30 * SECOND);
+  assert.deepEqual(s.bsb.writes(), [['710', '23.0']], 'the older one never left');
+  assert.equal(s.bsb.params[710].value, '23.0');
+  assert.ok(
+    s.logs.some((l) => l.level === 'info' && /heating-setpoint.*replaced/.test(l.line)),
+    s.logs.map((l) => l.line).join(' | '),
+  );
+});
+
+test('r034-r2 n1 (N8): the 30 s hold of own tries ends as soon as a read succeeds', async (t) => {
+  const s = await setup(t);
+  // Interval 30 s: a read fails, the next one 30 s later.
+  s.bsb.down = true;
+  await s.until(() => s.app.adapter.online === false, 40 * SECOND);
+  const offlineAt = Date.now();
+  await s.advance(10 * SECOND);
+  const a = s.click('heating-setpoint', 22);
+  await s.until(() => a.ack);
+  assert.match(a.ack.error, /relue juste avant \(unreachable\)/);
+  s.bsb.down = false;
+  await s.until(() => s.app.adapter.online === true, 30 * SECOND);
+  assert.ok(Date.now() - offlineAt < 35 * SECOND, 'back before the hold ended');
+  assert.ok(s.app.ownTryUntil > Date.now(), 'the hold of the failed try still runs');
+  const b = s.click('heating-setpoint', 22);
+  await s.until(() => b.ack);
+  assert.equal(b.ack.error, undefined, 'online: never held');
+  assert.equal(s.bsb.params[710].value, '22.0');
+});
+
+test('r034-r2 J1: a failed poll drops the reads of earlier commands (a refusal before any request shows nothing)', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  const a = s.click('hc2-setpoint', 26.5);
+  await s.until(() => a.ack);
+  s.bsb.params[1010] = { ...s.bsb.params[1010], value: '23.0' };
+  s.bsb.down = true;
+  // The next poll (600 s) fails.
+  await s.advance(11 * MINUTE, 1_000);
+  assert.equal(s.app.offlineFresh.size, 0);
+  const before = s.gladys.fake.states.length;
+  // Refused on arrival (a tenth of a degree only): no request, no read.
+  const b = s.click('hc2-setpoint', 22.05);
+  await s.until(() => b.ack);
+  await s.advance(2 * SECOND);
+  assert.ok(b.ack.error);
+  assert.deepEqual(shownOf(s, before, 'hc2-setpoint'), [], 'never the 21 read before the failure');
+});
+
+test('r034-r2 J1: a stop on refused credentials drops the reads of earlier commands', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  await failedPoll(s);
+  // Its own read passes, its write gets a 401: a stop on the credentials.
+  s.bsb.behave = (r) => (r.endpoint === '/JS' ? { status: 401 } : undefined);
+  const a = s.click('hc2-setpoint', 22);
+  await s.until(() => a.ack);
+  assert.match(a.ack.error, /refusé la commande/);
+  s.bsb.behave = undefined;
+  // The next tick meets the stop (15 min): nothing requested, halted.
+  await s.advance(11 * MINUTE, 1_000);
+  assert.equal(s.app.adapter.error, 'auth');
+  assert.equal(s.app.offlineFresh.size, 0);
+  const before = s.gladys.fake.states.length;
+  const b = s.click('hc2-setpoint', 22.05);
+  await s.until(() => b.ack);
+  await s.advance(2 * SECOND);
+  assert.deepEqual(shownOf(s, before, 'hc2-setpoint'), []);
+});

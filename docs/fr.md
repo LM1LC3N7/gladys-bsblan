@@ -346,7 +346,8 @@ d'adresse MAC ou pas d'API JSON, et pendant une pause ou un arrêt sur
 identifiants refusés. Si BSB-LAN ne lui répond pas non plus, les
 commandes suivantes ne réessaient pas pendant 30 secondes (« n'a pas
 répondu à une commande il y a quelques secondes ») ; les commandes de
-protection n'en sont jamais retenues. Une telle commande ne change ni le statut ni l'heure de la lecture suivante
+protection n'en sont jamais retenues. Une telle commande ne change ni le
+statut ni l'heure de la lecture suivante
 (pas de lectures 5 et 20 secondes après tant que l'adaptateur est dit
 injoignable).
 
@@ -371,7 +372,8 @@ lignes d'information, chacune avec son texte ; les autres refus sont des
 avertissements. Quand Gladys est injoignable (mise à jour, redémarrage),
 « Sending to Gladys failed » n'est écrit qu'une fois, une de plus
 par nouvelle cause (3 au plus ; une cause qui ne diffère que par ses
-nombres est la même), puis « Sending to Gladys works again ». Les heures des lignes sont en UTC (le `Z` final),
+nombres est la même), puis « Sending to Gladys works again ». Les heures des
+lignes sont en UTC (le `Z` final),
 comme les écrit le journal du SDK des intégrations Gladys.
 
 ## Erreurs et limites
@@ -393,7 +395,8 @@ comme les écrit le journal du SDK des intégrations Gladys.
   (par exemple pour Home Assistant), la charge sur l'adaptateur peut faire
   échouer les commandes de Gladys (délais dépassés : « répondu trop
   lentement », « n'a pas pu être relue juste avant (timeout) », « envoyée,
-  sans confirmation (timeout) » ; ces messages le rappellent alors). Désactivez le MQTT sur BSB-LAN, ou allégez-le
+  sans confirmation (timeout) » ; ces messages le rappellent alors).
+  Désactivez le MQTT sur BSB-LAN, ou allégez-le
   (intervalle plus long, moins de paramètres), et gardez un intervalle de
   lecture raisonnable dans Gladys (30 s ou plus). Constaté sur une vraie
   installation : MQTT désactivé et 30 s, toutes les commandes passent.

@@ -761,6 +761,7 @@ export class BsbLanApp {
   /** Nothing requested: a pause or a stop holds. */
   halted(adapter, error, wait) {
     adapter.online = false;
+    this.offlineFresh.clear();
     if (adapter.error !== error) {
       // The HTTP status that caused it (a 403) stays while the same stop holds.
       adapter.status = undefined;
@@ -927,6 +928,8 @@ export class BsbLanApp {
   failed(adapter, err) {
     adapter.online = false;
     adapter.status = undefined;
+    // A command's read made before this failed read is not current any more (r034-r2 J1).
+    this.offlineFresh.clear();
     if (err.unsupported) {
       adapter.error = err.unsupported;
       adapter.wait = Math.max(this.interval, TIMINGS.unsupportedRetry);
@@ -1700,10 +1703,11 @@ export class BsbLanApp {
 
   /**
    * In the retry delay after a failed read, the states give only the status
-   * text: the feature of a command is published from the command's own
-   * fresh read (its MAC checked by its /JI) when there is one (r034 I2).
-   * Without it (BSB-LAN did not answer the command either), the card waits
-   * for the next read.
+   * text: the feature of a command is published from a fresh read made by a
+   * command (its MAC checked by its /JI) since the last failed request (r034
+   * I2). Any failed read or own try drops those reads (r034-r2 J1): without
+   * one (BSB-LAN did not answer the command either), the card waits for the
+   * next read.
    */
   showOffline(target, id) {
     const adapter = this.adapter;
@@ -1901,8 +1905,10 @@ export class BsbLanApp {
         throw err;
       }
       if (retry) {
-        // No answer again: the next commands do not try before 30 s.
+        // No answer again: the next commands do not try before 30 s, and no
+        // value read by an earlier command is shown as current (r034-r2 J1).
         this.ownTryUntil = this.now() + TIMINGS.ownTryRetry;
+        this.offlineFresh.clear();
       }
       if (err.code === CODES.LATE) {
         throw this.refusal(ERRORS.tooSlow);
