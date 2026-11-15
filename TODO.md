@@ -578,3 +578,11 @@ for a poll request in flight; `checkBeforeSend` on `live`).
       stop) killed by tests.
 - [x] m3: never two nudges within 11 s: at most ~5.5 per minute, none dropped by the core.
 - Mutants N15-N22; N13's anchor follows the new code.
+
+## 0.4.0 r3 (review bsblan-040-r2, 43f3ef5: APPROVED, 2 minors)
+
+- [x] n1: a dashboard pulling while a nudge waits for its window no longer cancels it (other
+      dashboards, another language, may hold the older content): `widget()` owes the nudge.
+      Test and mutant N24. Docs ("about 11 s") stay true.
+- [x] n2: the early return on `widgetTimer` (one timer at most) pinned by a test (three changes in
+      the window, stop(), no widget timer fires after): mutant N23 (the reviewer's X8).

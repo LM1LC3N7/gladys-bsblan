@@ -207,3 +207,33 @@ test('r1 M16: contradictory bounds at the last read are never given as a range',
       'Consigne de 2 °C refusée : elle doit être comprise entre 5 et 35 °C (limites du module) ; non envoyée.',
   });
 });
+
+test('r2 n2: three changes in the window, then stop(): no timer left (one timer at most)', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  for (const room of [12.5, 13.5, 14.5]) {
+    s.app.adapter.values = { ...s.app.adapter.values, room };
+    s.app.nudgeWidget();
+  }
+  s.app.stop();
+  let calls = 0;
+  s.app.nudgeWidget = () => {
+    calls += 1;
+  };
+  await s.advance(30 * SECOND);
+  assert.equal(calls, 0, 'no timer of the widget fired after stop()');
+});
+
+test('r2 n1: a dashboard pulling while a nudge waits does not cancel it (other dashboards)', async (t) => {
+  const s = await setup(t, { config: { poll_interval: 600 } });
+  s.app.adapter.values = { ...s.app.adapter.values, room: 12.5 };
+  s.app.nudgeWidget();
+  const first = s.core.nudges.length;
+  s.app.adapter.values = { ...s.app.adapter.values, room: 13.5 };
+  s.app.nudgeWidget();
+  assert.ok(s.app.widgetTimer !== undefined, 'deferred');
+  // Another dashboard (French) pulls the new content meanwhile.
+  await s.gladys.fake.widgetGet(WIDGET_KEY, { language: 'fr' });
+  await s.advance(12 * SECOND);
+  assert.equal(s.core.nudges.length, first + 1, 'the deferred nudge went anyway');
+  assert.ok(s.core.shown.includes('13.5'));
+});

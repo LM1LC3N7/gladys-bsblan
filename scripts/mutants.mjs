@@ -452,6 +452,19 @@ const MUTANTS = [
     '        this.widgetTimer = undefined;\n        this.nudgeWidget();\n',
     '        this.widgetTimer = undefined;\n',
   ],
+  // Review bsblan-040-r2: one widget timer at most (X8), a pull never cancels a waiting nudge (n1).
+  [
+    'N23-second-timer',
+    'src/app.js',
+    '    if (this.widgetTimer !== undefined) {\n      // The nudge at the end',
+    '    if (false) {\n      // The nudge at the end',
+  ],
+  [
+    'N24-pull-cancels-the-nudge',
+    'src/app.js',
+    '      this.widgetOwed = true;\n    }\n    return content;',
+    '    }\n    return content;',
+  ],
 ];
 
 function apply(file, from, to) {

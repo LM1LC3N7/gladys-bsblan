@@ -1217,6 +1217,11 @@ export class BsbLanApp {
     const content = this.widgetOf(lang);
     // The dashboard has this content now.
     this.widgetShown = JSON.stringify(this.widgetOf('en'));
+    if (this.widgetTimer !== undefined) {
+      // A nudge waits for its window: other dashboards (another language)
+      // may still hold the older content, it goes anyway (review r2 n1).
+      this.widgetOwed = true;
+    }
     return content;
   }
 
