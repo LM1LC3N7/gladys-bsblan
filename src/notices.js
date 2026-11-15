@@ -41,3 +41,17 @@ export function logOutcome(logger, what, err, warned = `${what} refused`) {
   }
   logger?.warn(`${warned}: ${err?.message}`);
 }
+
+/**
+ * The value of a command as the log shows it: a finite number, a plain
+ * decimal text or a mode key; anything else is never shown again.
+ */
+export function shownValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return String(value);
+  }
+  if (typeof value === 'string' && /^(-?\d{1,6}(\.\d{1,6})?|[a-z][a-z-]{0,23})$/.test(value)) {
+    return value;
+  }
+  return '(invalid value)';
+}

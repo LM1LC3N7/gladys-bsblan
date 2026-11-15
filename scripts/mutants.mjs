@@ -1,5 +1,5 @@
 // -----------------------------------------------------------------------------
-// Mutants of the fixes for forum t/11458 n° 9 and n° 11 (0.3.4), review bsblan-032-r3 (m1, m2).
+// Mutants of the fixes for forum t/11458 n° 9 and n° 11 (0.3.4), n° 13 (0.4.0), review bsblan-032-r3 (m1, m2).
 // Each one breaks one fix; the whole suite must fail, never hang. Run one at a
 // time in a private copy of the repository (never the working tree), under a
 // RAM cap and a deadline that kills the whole process group:
@@ -327,6 +327,81 @@ const MUTANTS = [
     'src/app.js',
     '    adapter.online = false;\n    this.offlineFresh.clear();\n',
     '    adapter.online = false;\n',
+  ],
+  // t/11458 n° 13 (0.4.0): the bounds named, the value asked, the widget.
+  [
+    'N1-comfort-not-above-reduced',
+    'src/app.js',
+    "        ...(spec.reduced ? [] : [bound('reduced')]),\n",
+    '',
+  ],
+  [
+    'N2-reduced-not-below-comfort',
+    'src/app.js',
+    "        ...(spec.reduced ? [bound('comfort')] : []),\n",
+    '',
+  ],
+  [
+    'N3-tie-takes-the-last',
+    'src/app.js',
+    '(better(bound.value, best.value) ? bound : best)',
+    '(better(bound.value, best.value) || bound.value === best.value ? bound : best)',
+  ],
+  [
+    'N4-no-range-of-the-last-read',
+    'src/app.js',
+    '      return ERRORS.outOfDeviceRange(number, range.low, range.high, { lastRead: true });',
+    '      return ERRORS.outOfRange(number, min, max);',
+  ],
+  [
+    'N5-range-of-another-adapter',
+    'src/app.js',
+    '    const values = mac && this.adapter?.mac === mac ? this.adapter.values : undefined;',
+    '    const values = this.adapter?.values;',
+  ],
+  [
+    'N6-empty-range-not-named',
+    'src/app.js',
+    '    if (low.value > high.value) {\n      // The bounds read',
+    '    if (false) {\n      // The bounds read',
+  ],
+  [
+    'N7-missing-bound-not-named',
+    'src/app.js',
+    '      throw this.refusal(ERRORS.missingBounds(wanted.value, range.missing));',
+    '      throw this.refusal(ERRORS.missingValue);',
+  ],
+  [
+    'N8-mode-of-circuit-2-not-named',
+    'src/app.js',
+    '    if (ids.mode && values?.[ids.modeKey] === undefined) {',
+    '    if (false) {',
+  ],
+  ['N9-no-value-in-the-log', 'src/handlers.js', ' ${shownValue(value)}`', '`'],
+  [
+    'N10-invalid-input-logged',
+    'src/notices.js',
+    "  return '(invalid value)';",
+    '  return String(value);',
+  ],
+  [
+    'N11-no-value-in-step-refusal',
+    'src/app.js',
+    'ERRORS.badStep(0.1, number)',
+    'ERRORS.badStep(0.1, 0)',
+  ],
+  ['N12-widget-shows-old-values', 'src/widget.js', '  if (!live || !values) {', '  if (!values) {'],
+  [
+    'N13-widget-nudged-on-every-publish',
+    'src/app.js',
+    '    if (json === this.widgetShown) {\n      return;\n    }\n',
+    '',
+  ],
+  [
+    'N14-widget-nudged-before-asked',
+    'src/app.js',
+    '    if (!this.widgetAsked || this.stopped) {',
+    '    if (this.stopped) {',
   ],
 ];
 

@@ -84,13 +84,24 @@ test('every text is in English and French', () => {
   }
 });
 
-test('no capture, no sub-container, no widget nor scene', () => {
+test('no capture, no sub-container, no scene; one read-only widget (0.4.0)', () => {
   assert.equal(manifest.network_discovery, undefined);
   assert.equal(manifest.network_wake, undefined);
   assert.equal(manifest.containers, undefined);
   assert.equal(manifest.scene_actions, undefined);
   assert.equal(manifest.scene_triggers, undefined);
-  assert.equal(manifest.widgets, undefined);
+  assert.equal(manifest.widgets.length, 1);
+  const [widget] = manifest.widgets;
+  assert.equal(widget.key, 'heating');
+  assert.equal(widget.settings, undefined, 'one adapter: nothing to choose');
+  assert.equal(widget.action_timeout_seconds, undefined, 'no button, no action');
+  for (const text of [widget.label, widget.description]) {
+    assert.equal(typeof text.en, 'string');
+    assert.equal(typeof text.fr, 'string');
+  }
+  for (const text of Object.values(widget.description)) {
+    assert.ok(text.length <= 100, 'the store refuses a widget description over 100 characters');
+  }
 });
 
 test('the configuration matches the code; the commands are off; the hot water ceiling bounded', () => {

@@ -10,6 +10,29 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+Planned as 0.4.0 (minor release: a new feature).
+
+### Added
+
+- A read-only dashboard widget "Heating (BSB-LAN)" (forum t/11458 n° 13):
+  room temperatures, comfort and reduced setpoints, mode and status of each
+  heating circuit, and the hot water. No button. It says when BSB-LAN does
+  not answer instead of showing old values, and is refreshed only when its
+  content changes.
+
+### Changed
+
+- Every setpoint refusal gives the value asked and where each bound comes
+  from (forum t/11458 n° 13), for example "Setpoint of 28.5 °C refused: the
+  controller accepts it between 17 °C (reduced setpoint, 1012) and 25 °C
+  (comfort maximum, 1016); not sent." A value outside 5–35 °C (10–65 °C for
+  hot water) names the range of the controller at the last read when it is
+  known. Bounds that contradict each other (a reduced setpoint above the
+  comfort maximum) and a bound BSB-LAN did not give are named, instead of
+  "BSB-LAN did not give the current value or the allowed range". The log
+  line of a refused command shows the value asked. Never another value than
+  the one asked is written (not the nearest bound).
+
 ## [0.3.4] - 2026-11-14
 
 ### Fixed

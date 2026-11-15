@@ -532,3 +532,33 @@ for a poll request in flight; `checkBeforeSend` on `live`).
 - [x] n2: `docs/fr.md` lines reflowed.
 - The reviewer's scenario q-032r2 R3 is not in the repository; its counterpart in
   `test/queue.test.js` (R3) was already rewritten in 0.3.4 (13 s reads: refused after "going on").
+
+## 0.4.0 (XDECO, t/11458 n° 13: BSB-LAN recent, circuit 2; minor release)
+
+- [x] 1. Refusals name each bound: `rangeOf` (src/app.js) gives `{ low, high }` with their source
+      (710/712/714/716, 1010/1012/1014/1016, 1610/1612/1614, the ceiling, the limits of the module);
+      on a tie the parameter wins over the module limit. Circuit 3 (1310-1316) is not handled.
+- [x] 2. The "5 and 35 °C" refusals are `parseCommand`'s hard limits (`SETPOINT_LIMITS.heating`, the
+      feature's min/max too): a number outside 5-35 reached the module. Most likely the values in
+      between that the Gladys card sends while a setpoint is typed (its number input: `onChange`
+      becomes `oninput` under preact/compat, debounced 200 ms: "2" before "22.5"); not a defect of
+      the module. Every setpoint refusal now gives the value asked, the range of the last read when
+      known (`outOfLimits`), and the log line of a refused command shows the value (`shownValue`:
+      a number, a decimal text or a mode key; any other input "(invalid value)", never shown again).
+- [x] 3. "did not give the current value or the allowed range" covered two cases: a bound missing,
+      and an empty range (low > high). In XDECO's log, between 16:25:19 and 16:25:31 the reduced
+      setpoint was refused "between 8 and 21" from the same five parameters while the comfort one
+      was refused "no range": every value was read, so the comfort range was empty (1012 above
+      1016 after 1016 was changed). Nothing is cached: each command reads 1000/1010/1012/1014/1016
+      itself; the refusals lasted as long as the controller's settings contradicted each other.
+      Now `emptyRange` names both bounds, `missingBounds` names the parameters not given.
+- [x] 4. Never the nearest bound written (coordinator's decision): refused, the WARN log says so.
+- [ ] 5. Not done: Gladys does not let an integration change min/max of a created feature silently
+      (`publishDiscoveredDevices` upserts `params` and `supported_options` only; a changed min/max
+      is a "structure change": an Update button in Discovery). The comfort range also moves with
+      the reduced setpoint. The sliders keep 5-35 °C (docs say so since 0.2.0).
+- [x] 6. Read-only dashboard widget `heating` (src/widget.js, manifest `widgets`): tiles (room
+      temperatures, hot water, outside) and one status list (per circuit mode, comfort / reduced,
+      status; hot water mode, setpoints, status). Values of the last read only while live; a
+      nudge (`requestWidgetRefresh`) only once a dashboard asked and only when the content changed.
+- Mutants N1-N14 in `scripts/mutants.mjs`.

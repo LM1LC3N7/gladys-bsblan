@@ -55,6 +55,7 @@ src/config.js                config_schema normalized (address, passkey, usernam
                              poll_interval, language)
 src/constants.js             feature roles, limits, timings, the hot water ceiling
 src/i18n.js                  runtime texts, feature and mode names (en/fr)
+src/widget.js                the read-only dashboard widget `heating` (pure)
 test/fixtures/fakeBsbLan.js  the fake adapter behind the transport; Gladys is the SDK's fake
 scripts/cover.mjs            cover.png generator
 scripts/mutants.mjs          mutants of the fixes, run one at a time in a private copy
@@ -99,7 +100,9 @@ scripts/mutants.mjs          mutants of the fixes, run one at a time in a privat
   until it leaves (`latest`); the ack by 4.2 s at most ("going on",
   outcome logged: 0.3.4); in the retry delay, its own /JI (3 s), one own
   try per 30 s after a failure, never holding a protective; a write
-  without status 1 is "sent, without confirmation"; a success only when a
+  without status 1 is "sent, without confirmation"; a refusal names the
+  value asked and the source of each bound (`rangeOf`), never writes
+  another value (no nearest bound); a success only when a
   read back shows the value; never retried; one at a time; the ack never
   waits for Gladys. Never leave an unknown mode (except to Protection).
 - **Protective** (Protection 700/1000 = 0, hot water Off 1600 = 0): never
@@ -117,6 +120,9 @@ scripts/mutants.mjs          mutants of the fixes, run one at a time in a privat
 - **Write access**: the `readwrite` of the parameter in the fresh read
   first, else `buswritable` of /JI, never believed before firmware 5.1.19.
 - **Extra parameters**: read only, forever; never a command role.
+- **Widget** (`heating`, 0.4.0): read only, no button; only the values of a
+  current read (else a line saying BSB-LAN does not answer); refreshed only
+  after a dashboard asked and when its content changed.
 - **Hot water**: never above the configured ceiling (65 °C by default) nor
   65 °C nor the controller's nominal max (1614), whole degrees only.
 - **Energy**: never an `energy-sensor` index nor `publishEnergyConsumption`

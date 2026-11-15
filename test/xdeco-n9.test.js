@@ -171,10 +171,10 @@ test('n° 9: any other refusal stays a warning', async (t) => {
   const { click, waitAck, lines } = await setup(t);
   const box = click('hc2-reduced-target', 25);
   await waitAck(box);
-  assert.match(box.ack.error, /accepte cette consigne entre/);
+  assert.match(box.ack.error, /l.accepte entre/);
   const logged = about(lines, 'hc2-reduced-target');
   assert.deepEqual(
-    logged.map(([level, l]) => [level, /refused: .*accepte cette consigne/.test(l)]),
+    logged.map(([level, l]) => [level, /refused: .*l.accepte entre/.test(l)]),
     [['warn', true]],
   );
 });

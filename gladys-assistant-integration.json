@@ -226,5 +226,19 @@
       },
       "timeout_seconds": 30
     }
+  ],
+  "widgets": [
+    {
+      "key": "heating",
+      "label": {
+        "en": "Heating (BSB-LAN)",
+        "fr": "Chauffage (BSB-LAN)"
+      },
+      "description": {
+        "en": "Read only: room temperature, setpoints, mode and status per circuit, and the hot water.",
+        "fr": "Lecture seule : température ambiante, consignes, mode et état par circuit, et l'eau chaude."
+      },
+      "icon": "thermometer"
+    }
   ]
 }

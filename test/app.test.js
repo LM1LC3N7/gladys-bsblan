@@ -336,8 +336,8 @@ test('the comfort setpoint: bounded by 714–716 read just before, strict values
   await command('heating-setpoint', 21.5, { wait: 30 * SECOND });
   bsb.params[716] = { ...bsb.params[716], value: '24.0' };
   const high = await command('heating-setpoint', 26);
-  assert.match(high.error, /entre 17 et 24 °C actuellement/, 'never below 712 nor 714');
-  assert.match((await command('heating-setpoint', 16)).error, /entre 17 et 24/);
+  assert.match(high.error, /entre 17 °C \(.+?\) et 24 °C \(.+?\)/, 'never below 712 nor 714');
+  assert.match((await command('heating-setpoint', 16)).error, /entre 17 °C \(.+?\) et 24 °C/);
   for (const value of ['', null, 'abc', 21.55, '1e1', true]) {
     const ack = await command('heating-setpoint', value);
     assert.equal(ack.success, false, String(value));
@@ -353,12 +353,15 @@ test('hot water: 65 °C by default, refused on arrival above it, bounded by 1612
   const { command, app } = await setup(t, { bsb, config: ALLOWED });
   assert.equal(app.config.dhwCap, 65, '65 °C by default');
   const above = await command('dhw-setpoint', 66);
-  assert.match(above.error, /entre 10 et 65 °C/);
+  assert.match(
+    above.error,
+    /Consigne de 66 °C refusée.*entre 40 °C \(.+?\) et 65 °C \(.+?\) d'après la dernière lecture/,
+  );
   assert.equal((await command('dhw-setpoint', 65.5)).success, false, 'never above 65');
   assert.match((await command('dhw-setpoint', 50.5)).error, /multiple de 1 °C/);
   assert.match(
     (await command('dhw-setpoint', 39)).error,
-    /entre 40 et 65 °C actuellement/,
+    /entre 40 °C \(.+?\) et 65 °C \(.+?\)/,
     'the ceiling in the range shown',
   );
   assert.deepEqual(bsb.writes(), [], 'nothing sent above the ceiling');
@@ -375,7 +378,7 @@ test('hot water: 65 °C by default, refused on arrival above it, bounded by 1612
   bsb.params[1614] = { ...bsb.params[1614], value: '58.0' };
   assert.match(
     (await command('dhw-setpoint', 59)).error,
-    /entre 40 et 58 °C/,
+    /entre 40 °C \(.+?\) et 58 °C \(.+?\)/,
     'the controller maximum wins when lower',
   );
   assert.deepEqual(bsb.writes(), [

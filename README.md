@@ -23,7 +23,8 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
                                   ├─ src/params.js         parameter map and decoding (python-bsblan)
                                   ├─ src/devices.js        the device and its states (pure)
                                   ├─ src/store.js          /data: pause, stop, kept stops (no secret)
-                                  └─ src/publisher.js      states within 300/min
+                                  ├─ src/publisher.js      states within 300/min
+                                  └─ src/widget.js         the read-only dashboard widget
 ```
 
 - **Reads**: `/JI` (MAC, firmware, bus, write access), `/JV` once (JSON-API
@@ -74,6 +75,11 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
   whole degrees, ceiling 65 °C by default, configurable 40–65 °C, never
   above 65 °C nor the controller's own maximum. Refused on a PPS bus and when BSB-LAN gives the parameter as read only
   (its `readwrite` access, else `buswritable` of `/JI`, never believed before 5.1.19).
+- **Refusals** name the value asked and where each bound comes from
+  ("between 17 °C (reduced setpoint, 1012) and 25 °C (comfort maximum,
+  1016)"); never the nearest bound written instead.
+- **Dashboard widget** `heating` (0.4.0): read only, room temperatures,
+  setpoints, mode and status per circuit, hot water; only current values.
 - **Guards**: after a write, until a read shows it (or 90 s), the same
   setting is sent again even when the read shows the wanted value.
 

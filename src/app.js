@@ -83,7 +83,109 @@ import { BsbClient, departedOf } from './bsblan/client.js';
 import { BsbError, CODES, isAuthRefused, isBusy, reasonOf } from './bsblan/errors.js';
 import { NOTICES, logOutcome, noticeLine } from './notices.js';
 import { StatePublisher } from './publisher.js';
+import { WIDGET_KEY, widgetContent } from './widget.js';
 import { memoryStore, normalizeMemory, serializeMemory } from './store.js';
+
+/**
+ * The parameters bounding the setpoints of a heating circuit (named in the
+ * refusals): comfort within reduced..comfort max, reduced within frost
+ * protection..comfort. Circuit 2 exists only with its mode (1000).
+ */
+const CIRCUIT1 = {
+  comfort: P.COMFORT,
+  reduced: P.REDUCED,
+  protective: P.PROTECTIVE,
+  comfortMax: P.COMFORT_MAX,
+};
+const CIRCUIT2 = {
+  comfort: P.COMFORT2,
+  reduced: P.REDUCED2,
+  protective: P.PROTECTIVE2,
+  comfortMax: P.COMFORT_MAX2,
+  mode: P.MODE2,
+  modeKey: 'mode2',
+};
+const HEATING_SOURCES = ['comfort', 'reduced', 'protective', 'comfortMax'];
+
+/** The bound of a list with the highest (`>`) or lowest (`<`) value; on a tie, the first one. */
+const pick = (bounds, better) =>
+  bounds.reduce((best, bound) => (better(bound.value, best.value) ? bound : best));
+
+/**
+ * The range a setpoint command accepts, from decoded values (a fresh read,
+ * or the last read for a message only): `{ low, high }`, each
+ * `{ value, source, id? }` (src/i18n.js BOUND_NAMES), or `{ missing }` (the
+ * parameters not given). `low.value > high.value`: no value fits.
+ */
+export function rangeOf(spec, values, dhwCap) {
+  if (spec.kind === 'heating') {
+    const ids = spec.params;
+    if (ids.mode && values?.[ids.modeKey] === undefined) {
+      return { missing: [{ id: ids.mode, source: 'mode' }] };
+    }
+    const read = {};
+    HEATING_SOURCES.forEach((source, index) => {
+      read[source] = values?.[spec.bounds[index]];
+    });
+    const missing = HEATING_SOURCES.filter((source) => read[source] === undefined).map(
+      (source) => ({ id: ids[source], source }),
+    );
+    if (missing.length > 0) {
+      return { missing };
+    }
+    const bound = (source) => ({ value: read[source], source, id: ids[source] });
+    const { min, max } = SETPOINT_LIMITS.heating;
+    // Comfort: never below the reduced setpoint nor the frost protection one,
+    // never above the comfort max. Reduced: never below the frost protection
+    // one, never above the comfort one nor the comfort max.
+    const low = pick(
+      [
+        ...(spec.reduced ? [] : [bound('reduced')]),
+        bound('protective'),
+        { value: min, source: 'module' },
+      ],
+      (a, b) => a > b,
+    );
+    const high = pick(
+      [
+        ...(spec.reduced ? [bound('comfort')] : []),
+        bound('comfortMax'),
+        { value: max, source: 'module' },
+      ],
+      (a, b) => a < b,
+    );
+    return { low, high };
+  }
+  const dhw = [
+    ['dhwSetpoint', P.DHW_NOMINAL, 'dhwNominal'],
+    ['dhwSetpointReduced', P.DHW_REDUCED, 'dhwReduced'],
+    ['dhwMax', P.DHW_NOMINAL_MAX, 'dhwMax'],
+  ];
+  const missing = dhw
+    .filter(([key]) => values?.[key] === undefined)
+    .map(([, id, source]) => ({ id, source }));
+  if (missing.length > 0) {
+    return { missing };
+  }
+  const bound = ([key, id, source]) => ({ value: values[key], source, id });
+  const [nominal, reduced, nominalMax] = dhw.map(bound);
+  const { min, max } = SETPOINT_LIMITS.dhw;
+  const ceiling = { value: dhwCap, source: 'ceiling' };
+  const limit = { value: max, source: 'module' };
+  if (spec.reduced) {
+    // 1612 never above 1610, 1614, the ceiling nor 65 °C.
+    return {
+      low: { value: min, source: 'module' },
+      high: pick([nominal, nominalMax, ceiling, limit], (a, b) => a < b),
+    };
+  }
+  // 1610 lies between the reduced setpoint (1612) and its max (1614), and
+  // never above the ceiling.
+  return {
+    low: pick([reduced, { value: min, source: 'module' }], (a, b) => a > b),
+    high: pick([nominalMax, ceiling, limit], (a, b) => a < b),
+  };
+}
 
 const heating = (id, key, extra) => ({
   kind: 'heating',
@@ -132,21 +234,25 @@ const COMMANDS = {
   [F.HEATING_SETPOINT]: heating(P.COMFORT, 'heatingSetpoint', {
     read: [P.COMFORT, P.REDUCED, P.PROTECTIVE, P.COMFORT_MAX],
     bounds: ['heatingSetpoint', 'heatingSetpointReduced', 'heatingMin', 'heatingMax'],
+    params: CIRCUIT1,
   }),
   [F.HEATING_REDUCED_TARGET]: heating(P.REDUCED, 'heatingSetpointReduced', {
     reduced: true,
     read: [P.COMFORT, P.REDUCED, P.PROTECTIVE, P.COMFORT_MAX],
     bounds: ['heatingSetpoint', 'heatingSetpointReduced', 'heatingMin', 'heatingMax'],
+    params: CIRCUIT1,
   }),
   // Circuit 2: the same with 1010, 1012, 1014, 1016; its mode (1000) read too (it exists).
   [F.HC2_SETPOINT]: heating(P.COMFORT2, 'heating2Setpoint', {
     read: [P.MODE2, P.COMFORT2, P.REDUCED2, P.PROTECTIVE2, P.COMFORT_MAX2],
     bounds: ['heating2Setpoint', 'heating2SetpointReduced', 'heating2Min', 'heating2Max'],
+    params: CIRCUIT2,
   }),
   [F.HC2_REDUCED_TARGET]: heating(P.REDUCED2, 'heating2SetpointReduced', {
     reduced: true,
     read: [P.MODE2, P.COMFORT2, P.REDUCED2, P.PROTECTIVE2, P.COMFORT_MAX2],
     bounds: ['heating2Setpoint', 'heating2SetpointReduced', 'heating2Min', 'heating2Max'],
+    params: CIRCUIT2,
   }),
   // Hot water: nominal 1610 and reduced 1612, under 1614, the ceiling and 65 °C.
   [F.DHW_SETPOINT]: {
@@ -292,6 +398,13 @@ export class BsbLanApp {
      * numbered after `seq` (queueStates).
      */
     this.reshow = new Map();
+    /**
+     * The dashboard widget: asked at least once (no nudge before), and the
+     * content of the last nudge (one nudge per change only; the SDK keeps
+     * them to 1 per 10 s on top).
+     */
+    this.widgetAsked = false;
+    this.widgetShown = undefined;
     this.queueTimer = undefined;
     /** No new command before this time: a write left just before. */
     this.quietUntil = -Infinity;
@@ -1065,6 +1178,45 @@ export class BsbLanApp {
     await this.flush();
     await this.publishBadge();
     await this.updateStatus();
+    this.nudgeWidget();
+  }
+
+  // --- Dashboard widget ------------------------------------------------------------
+
+  widgetOf(language) {
+    return widgetContent({
+      values: this.adapter?.values,
+      live: this.live,
+      everRead: Boolean(this.adapter?.values),
+      language,
+      pollSeconds: this.config.pollInterval,
+    });
+  }
+
+  /** A dashboard shows the widget (read only): the values of the last read, if current. */
+  widget(language) {
+    this.widgetAsked = true;
+    const lang = language === 'en' || language === 'fr' ? language : this.config.language;
+    const content = this.widgetOf(lang);
+    this.widgetShown ??= JSON.stringify(this.widgetOf('en'));
+    return content;
+  }
+
+  /** Tells the dashboards to pull the widget again, only when its content changed. */
+  nudgeWidget() {
+    if (!this.widgetAsked || this.stopped) {
+      return;
+    }
+    const json = JSON.stringify(this.widgetOf('en'));
+    if (json === this.widgetShown) {
+      return;
+    }
+    this.widgetShown = json;
+    try {
+      this.gladys.requestWidgetRefresh?.(WIDGET_KEY);
+    } catch (err) {
+      this.logger.debug(`Widget refresh not sent: ${err.message}`);
+    }
   }
 
   async flush() {
@@ -1365,7 +1517,7 @@ export class BsbLanApp {
    * number; a mode is one of the exact keys of its list), within the hard
    * limits. Returns `{ id, text, value, key?, protective? }`.
    */
-  parseCommand(role, value) {
+  parseCommand(role, value, mac) {
     const spec = COMMANDS[role];
     if (spec.kind === 'mode') {
       if (typeof value !== 'string' || !spec.options.includes(value)) {
@@ -1386,10 +1538,10 @@ export class BsbLanApp {
     if (spec.kind === 'heating') {
       const { min, max } = SETPOINT_LIMITS.heating;
       if (Math.abs(number * 10 - Math.round(number * 10)) > 1e-6) {
-        throw this.refusal(ERRORS.badStep(0.1));
+        throw this.refusal(ERRORS.badStep(0.1, number));
       }
       if (number < min || number > max) {
-        throw this.refusal(ERRORS.outOfRange(min, max));
+        throw this.refusal(this.outOfLimits(spec, number, mac, min, max));
       }
       const rounded = Math.round(number * 10) / 10;
       return { id: spec.id, text: rounded.toFixed(1), value: rounded };
@@ -1397,16 +1549,30 @@ export class BsbLanApp {
     // A hot water setpoint: whole degrees, never above the hard ceiling nor
     // the configured one.
     if (!Number.isInteger(number)) {
-      throw this.refusal(ERRORS.badStep(1));
+      throw this.refusal(ERRORS.badStep(1, number));
     }
     const { min, max } = SETPOINT_LIMITS.dhw;
     if (number < min || number > max) {
-      throw this.refusal(ERRORS.outOfRange(min, max));
+      throw this.refusal(this.outOfLimits(spec, number, mac, min, max));
     }
     if (number > this.config.dhwCap) {
-      throw this.refusal(ERRORS.dhwCap(this.config.dhwCap));
+      throw this.refusal(ERRORS.dhwCap(this.config.dhwCap, number));
     }
     return { id: spec.id, text: String(number), value: number };
+  }
+
+  /**
+   * A value out of the limits of the integration (refused before any read):
+   * the message gives the range of the controller at the last read of this
+   * adapter when it is known (it lies inside those limits), else the limits.
+   */
+  outOfLimits(spec, number, mac, min, max) {
+    const values = mac && this.adapter?.mac === mac ? this.adapter.values : undefined;
+    const range = values ? rangeOf(spec, values, this.config.dhwCap) : undefined;
+    if (range?.low && range.low.value <= range.high.value) {
+      return ERRORS.outOfDeviceRange(number, range.low, range.high, { lastRead: true });
+    }
+    return ERRORS.outOfRange(number, min, max);
   }
 
   async setValue(_device, feature, value) {
@@ -1449,7 +1615,7 @@ export class BsbLanApp {
   }
 
   async commandOf(target, value, received) {
-    const wanted = this.parseCommand(target.role, value);
+    const wanted = this.parseCommand(target.role, value, target.mac);
     // The order of the commands is the order of their arrival, never of their answers.
     const arrival = ++this.arrival;
     if (wanted.protective) {
@@ -1761,7 +1927,7 @@ export class BsbLanApp {
       COMMANDS[role].kind === 'dhw' &&
       (wanted.value > this.config.dhwCap || wanted.value > DHW_CAP.max)
     ) {
-      throw this.refusal(ERRORS.dhwCap(this.config.dhwCap));
+      throw this.refusal(ERRORS.dhwCap(this.config.dhwCap, wanted.value));
     }
   }
 
@@ -2229,55 +2395,26 @@ export class BsbLanApp {
       }
       return;
     }
-    if (spec.kind === 'heating') {
-      const [comfort, reduced, min, max] = spec.bounds.map((key) => fresh[key]);
-      if ([comfort, reduced, min, max].includes(undefined)) {
-        throw this.refusal(ERRORS.missingValue);
+    const range = rangeOf(spec, fresh, this.config.dhwCap);
+    if (range.missing) {
+      throw this.refusal(ERRORS.missingBounds(wanted.value, range.missing));
+    }
+    if (spec.kind === 'dhw') {
+      if (wanted.value > this.config.dhwCap) {
+        throw this.refusal(ERRORS.dhwCap(this.config.dhwCap, wanted.value));
       }
-      // Comfort: never below the reduced setpoint nor the protection one.
-      // Reduced: never below the protection one, never above the comfort one.
-      const low = Math.max(SETPOINT_LIMITS.heating.min, min, spec.reduced ? -Infinity : reduced);
-      const high = Math.min(SETPOINT_LIMITS.heating.max, max, spec.reduced ? comfort : Infinity);
-      if (low > high) {
-        throw this.refusal(ERRORS.missingValue);
+      if (!spec.reduced && fresh.dhwSetpointReduced > this.config.dhwCap) {
+        // 1610 can never go below 1612: no setpoint fits under the ceiling.
+        throw this.refusal(ERRORS.reducedAboveCap(fresh.dhwSetpointReduced, this.config.dhwCap));
       }
-      if (wanted.value < low || wanted.value > high) {
-        throw this.refusal(ERRORS.outOfDeviceRange(low, high));
-      }
-      return;
     }
-    const { dhwSetpoint, dhwSetpointReduced, dhwMax } = fresh;
-    if ([dhwSetpoint, dhwSetpointReduced, dhwMax].includes(undefined)) {
-      throw this.refusal(ERRORS.missingValue);
+    const { low, high } = range;
+    if (low.value > high.value) {
+      // The bounds read contradict each other (1012 above 1016, say): named.
+      throw this.refusal(ERRORS.emptyRange(wanted.value, low, high));
     }
-    if (wanted.value > this.config.dhwCap) {
-      throw this.refusal(ERRORS.dhwCap(this.config.dhwCap));
-    }
-    if (spec.reduced) {
-      // 1612 never above 1610, 1614, the ceiling nor 65 °C.
-      const high = Math.min(SETPOINT_LIMITS.dhw.max, dhwMax, this.config.dhwCap, dhwSetpoint);
-      const low = SETPOINT_LIMITS.dhw.min;
-      if (low > high) {
-        throw this.refusal(ERRORS.missingValue);
-      }
-      if (wanted.value < low || wanted.value > high) {
-        throw this.refusal(ERRORS.outOfDeviceRange(low, high));
-      }
-      return;
-    }
-    // 1610 lies between the reduced setpoint (1612) and its max (1614), and
-    // never above the ceiling.
-    const low = Math.max(SETPOINT_LIMITS.dhw.min, dhwSetpointReduced);
-    const high = Math.min(SETPOINT_LIMITS.dhw.max, dhwMax, this.config.dhwCap);
-    if (dhwSetpointReduced > this.config.dhwCap) {
-      // 1610 can never go below 1612: no setpoint fits under the ceiling.
-      throw this.refusal(ERRORS.reducedAboveCap(dhwSetpointReduced, this.config.dhwCap));
-    }
-    if (low > high) {
-      throw this.refusal(ERRORS.missingValue);
-    }
-    if (wanted.value < low || wanted.value > high) {
-      throw this.refusal(ERRORS.outOfDeviceRange(low, high));
+    if (wanted.value < low.value || wanted.value > high.value) {
+      throw this.refusal(ERRORS.outOfDeviceRange(wanted.value, low, high));
     }
   }
 

@@ -88,7 +88,7 @@ test('a refused command publishes the real value again at once, even unchanged',
   // Above the comfort setpoint of circuit 2 (21): refused by the range of the controller.
   const box = click('hc2-reduced-target', 25);
   await advance(2 * SECOND);
-  assert.match(box.ack.error, /accepte cette consigne entre/);
+  assert.match(box.ack.error, /l.accepte entre/);
   const after = statesOf(gladys, 'hc2-reduced-target').slice(before);
   assert.deepEqual(after, [18], 'the real value again, without waiting for the 30 min heartbeat');
 });

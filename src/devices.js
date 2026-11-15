@@ -428,7 +428,7 @@ export function keepCreatedFeatures(built, created) {
 }
 
 /** The text of a mode read. */
-function modeText(mode, names, language) {
+export function modeText(mode, names, language) {
   if (mode.key && Object.hasOwn(names, mode.key)) {
     return word(names[mode.key], language);
   }

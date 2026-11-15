@@ -287,6 +287,29 @@ const SLOW_HINT = both(
 );
 export const slowHinted = (text) => both(`${text.en}${SLOW_HINT.en}`, `${text.fr}${SLOW_HINT.fr}`);
 
+/** A number as each language writes it: 17.5 is "17,5" in French. */
+export const num = (value) => both(String(value), String(value).replace('.', ','));
+
+/** Where a bound of a setpoint comes from (the parameter id is added when there is one). */
+export const BOUND_NAMES = {
+  module: both('limit of the integration', 'limite du module'),
+  ceiling: both('hot water ceiling', "plafond de l'eau chaude"),
+  comfort: both('comfort setpoint', 'consigne de confort'),
+  reduced: both('reduced setpoint', 'consigne réduite'),
+  protective: both('frost protection setpoint', 'consigne hors-gel'),
+  comfortMax: both('comfort maximum', 'confort maximum'),
+  mode: both('mode of the circuit', 'mode du circuit'),
+  dhwNominal: both('hot water setpoint', "consigne d'eau chaude"),
+  dhwReduced: both('hot water reduced setpoint', "consigne réduite de l'eau chaude"),
+  dhwMax: both('hot water setpoint maximum', "consigne d'eau chaude maximum"),
+};
+
+/** "reduced setpoint, 1012", "limit of the integration". */
+const boundName = (bound) => {
+  const name = BOUND_NAMES[bound.source];
+  return bound.id ? both(`${name.en}, ${bound.id}`, `${name.fr}, ${bound.id}`) : name;
+};
+
 /** The errors a command answers to Gladys. */
 export const ERRORS = {
   readOnly: both('This feature is read only.', 'Cette fonctionnalité est en lecture seule.'),
@@ -307,30 +330,48 @@ export const ERRORS = {
     'The setpoint must be a number: not sent.',
     'La consigne doit être un nombre : non envoyée.',
   ),
-  badStep: (step) =>
+  badStep: (step, value) =>
     both(
-      `The setpoint must be a multiple of ${step} °C: not sent.`,
-      `La consigne doit être un multiple de ${String(step).replace('.', ',')} °C : non envoyée.`,
+      `Setpoint of ${num(value).en} °C refused: it must be a multiple of ${step} °C; not sent.`,
+      `Consigne de ${num(value).fr} °C refusée : elle doit être un multiple de ${num(step).fr} °C ; non envoyée.`,
     ),
-  outOfRange: (min, max) =>
+  /** Out of the limits of the integration, the controller's range not known yet. */
+  outOfRange: (value, min, max) =>
     both(
-      `The setpoint must be between ${min} and ${max} °C: not sent.`,
-      `La consigne doit être comprise entre ${min} et ${max} °C : non envoyée.`,
+      `Setpoint of ${num(value).en} °C refused: it must be between ${min} and ${max} °C (limits of the integration); not sent.`,
+      `Consigne de ${num(value).fr} °C refusée : elle doit être comprise entre ${min} et ${max} °C (limites du module) ; non envoyée.`,
     ),
-  outOfDeviceRange: (min, max) =>
+  /**
+   * Out of the range of the controller, each bound with where it comes from
+   * (`{ value, source, id? }`, see BOUND_NAMES). `lastRead`: the range of
+   * the last read (the value was refused before any fresh read).
+   */
+  outOfDeviceRange: (value, low, high, { lastRead = false } = {}) =>
     both(
-      `The controller accepts this setpoint between ${min} and ${max} °C now: not sent.`,
-      `Le régulateur accepte cette consigne entre ${min} et ${max} °C actuellement : non envoyée.`,
+      `Setpoint of ${num(value).en} °C refused: the controller accepts it between ${num(low.value).en} °C (${boundName(low).en}) and ${num(high.value).en} °C (${boundName(high).en})${lastRead ? ' at the last read' : ''}; not sent.`,
+      `Consigne de ${num(value).fr} °C refusée : le régulateur l'accepte entre ${num(low.value).fr} °C (${boundName(low).fr}) et ${num(high.value).fr} °C (${boundName(high).fr})${lastRead ? " d'après la dernière lecture" : ''} ; non envoyée.`,
+    ),
+  /** The bounds read contradict each other: no value fits. */
+  emptyRange: (value, low, high) =>
+    both(
+      `Setpoint of ${num(value).en} °C refused: no value fits, the lower bound ${num(low.value).en} °C (${boundName(low).en}) is above the upper bound ${num(high.value).en} °C (${boundName(high).en}); change these settings on the controller. Not sent.`,
+      `Consigne de ${num(value).fr} °C refusée : aucune valeur ne convient, la borne basse ${num(low.value).fr} °C (${boundName(low).fr}) dépasse la borne haute ${num(high.value).fr} °C (${boundName(high).fr}) ; corrigez ces réglages sur le régulateur. Non envoyée.`,
+    ),
+  /** A parameter of the range not given by BSB-LAN (`[{ id, source }]`). */
+  missingBounds: (value, params) =>
+    both(
+      `Setpoint of ${num(value).en} °C not sent: BSB-LAN did not give the current value of ${params.map((b) => `${b.id} (${BOUND_NAMES[b.source].en})`).join(', ')}, needed to know the allowed range.`,
+      `Consigne de ${num(value).fr} °C non envoyée : BSB-LAN n'a pas donné la valeur actuelle de ${params.map((b) => `${b.id} (${BOUND_NAMES[b.source].fr})`).join(', ')}, nécessaire pour connaître la plage permise.`,
     ),
   reducedAboveCap: (reduced, cap) =>
     both(
       `The hot water reduced setpoint of the controller (1612, ${reduced} °C) is above the ceiling (${cap} °C): the hot water setpoint cannot go below it, so no value fits. Lower 1612 on the controller, or raise "Hot water ceiling". Not sent.`,
       `La consigne réduite de l'eau chaude du régulateur (1612, ${reduced} °C) est au-dessus du plafond (${cap} °C) : la consigne d'eau chaude ne peut pas descendre en dessous, aucune valeur ne convient. Baissez 1612 sur le régulateur, ou relevez « Plafond de l'eau chaude ». Non envoyée.`,
     ),
-  dhwCap: (cap) =>
+  dhwCap: (cap, value) =>
     both(
-      `Hot water is capped at ${cap} °C (scalding risk, see "Hot water ceiling" in the configuration): not sent.`,
-      `L'eau chaude est plafonnée à ${cap} °C (risque de brûlure, voir « Plafond de l'eau chaude » dans la configuration) : non envoyée.`,
+      `Setpoint of ${num(value).en} °C refused: hot water is capped at ${cap} °C (scalding risk, see "Hot water ceiling" in the configuration); not sent.`,
+      `Consigne de ${num(value).fr} °C refusée : l'eau chaude est plafonnée à ${cap} °C (risque de brûlure, voir « Plafond de l'eau chaude » dans la configuration) ; non envoyée.`,
     ),
   unknownDevice: both(
     'This device is not the adapter read now (BSB-LAN not answering, or another adapter): not sent.',

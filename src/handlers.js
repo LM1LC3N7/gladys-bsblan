@@ -4,7 +4,8 @@
 // -----------------------------------------------------------------------------
 
 import { ACTIONS } from './constants.js';
-import { logOutcome } from './notices.js';
+import { logOutcome, shownValue } from './notices.js';
+import { WIDGET_KEY } from './widget.js';
 
 export function registerHandlers(gladys, app, logger) {
   gladys.onScanRequest(() => app.scan());
@@ -18,10 +19,14 @@ export function registerHandlers(gladys, app, logger) {
       await app.setValue(device, feature, value);
     } catch (err) {
       // Waiting behind another command, or replaced by a newer value: info.
-      logOutcome(logger, `Command ${feature?.external_id}`, err);
+      // The value asked is in the line (XDECO, t/11458 n° 13).
+      logOutcome(logger, `Command ${feature?.external_id} ${shownValue(value)}`, err);
       throw err;
     }
   });
+
+  // The dashboard widget, read only (no button in this version).
+  gladys.onWidgetGet(WIDGET_KEY, ({ language } = {}) => app.widget(language));
 
   // Configuration screen button.
   gladys.onAction(ACTIONS.TEST_CONNECTION, () => app.testConnection());

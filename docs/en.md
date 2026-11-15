@@ -165,6 +165,25 @@ and the range of the controller moves (the low bound of a comfort setpoint
 follows the reduced one). A value outside the range read just before is
 refused with that range, and the card goes back to the real value.
 
+Every refusal gives the value asked and where each bound comes from, so that
+you know which setting to change on the controller, for example: "Setpoint
+of 28.5 °C refused: the controller accepts it between 17 °C (reduced
+setpoint, 1012) and 25 °C (comfort maximum, 1016); not sent." A value
+outside the limits of the integration (5–35 °C for heating, 10–65 °C for hot
+water) is refused on arrival, with the range of the controller at the last
+read when it is known. Gladys **never writes another value** than the one
+asked (not the nearest bound): the refusal is in the logs (a warning, with
+the value). When the bounds read contradict each other (a reduced setpoint
+above the comfort maximum, say), the message names both parameters; when
+BSB-LAN does not give one of them, the message names it. Every command reads
+its bounds itself right before writing: a setting fixed on BSB-LAN counts
+from the next command.
+
+Typing a setpoint on the keyboard in the Gladys card also sends the values
+in between ("2" before "22.5") when the typing pauses: they are refused
+("Setpoint of 2 °C refused…"), the whole value leaves next. The + and −
+buttons do not do that.
+
 ### Protection and hot water Off: never held back
 
 The **Protection (frost protection)** mode of circuits 1 and 2 and the hot
@@ -346,6 +365,17 @@ update, a restart), "Sending to Gladys failed" is logged once, once more
 for each new cause (3 at most, a cause that only differs by its numbers is
 the same), then "Sending to Gladys works again". The times of the log lines are in UTC
 (the `Z` at the end), as the logger of the Gladys integration SDK writes them.
+
+## Dashboard widget
+
+The "Heating (BSB-LAN)" widget (a Gladys with integration widgets) shows,
+read only: the room temperature of each circuit, the hot water and the
+outside, then for each circuit its mode, its comfort and reduced setpoints
+and its status, and for the hot water its mode, setpoints and status. Only
+the values the controller gives appear. It has no button: the commands go
+through the cards of the device. When BSB-LAN stops answering, the widget
+says so instead of showing old values. It follows the reads, and is
+refreshed only when its content changes.
 
 ## Errors and limits
 

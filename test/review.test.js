@@ -185,7 +185,7 @@ test('I2: the real transport calls beforeSend once connected; a refusal sends no
 test('M1: the range shown for hot water includes the ceiling', async (t) => {
   const s = await setup(t);
   await s.app.configUpdated({ ...ALLOWED, dhw_max_temperature: 48 });
-  assert.match((await s.command('dhw-setpoint', 38)).error, /entre 40 et 48 °C/);
+  assert.match((await s.command('dhw-setpoint', 38)).error, /entre 40 °C \(.+?\) et 48 °C \(.+?\)/);
 });
 
 test('M2: no follow-up read while the adapter is known not to answer', async (t) => {
@@ -268,7 +268,10 @@ test('M4: an unknown bus, or an ambiguous buswritable without a parameter access
 test('M5: the comfort setpoint never below the reduced setpoint (712)', async (t) => {
   const s = await setup(t);
   s.bsb.params[712] = { ...s.bsb.params[712], value: '19.0' };
-  assert.match((await s.command('heating-setpoint', 18.5)).error, /entre 19 et 28 °C/);
+  assert.match(
+    (await s.command('heating-setpoint', 18.5)).error,
+    /entre 19 °C \(.+?\) et 28 °C \(.+?\)/,
+  );
   s.bsb.params[712] = { ...s.bsb.params[712], value: '---' };
   assert.match((await s.command('heating-setpoint', 21)).error, /plage permise/);
   assert.deepEqual(jsRequests(s.bsb), []);

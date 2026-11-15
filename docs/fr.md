@@ -176,6 +176,24 @@ d'une consigne confort suit la consigne réduite). Une valeur hors de la
 plage lue juste avant est refusée avec cette plage, et la carte reprend la
 valeur réelle.
 
+Chaque refus donne la valeur demandée et l'origine de chaque borne, pour
+savoir quel réglage changer sur le régulateur, par exemple : « Consigne de
+28,5 °C refusée : le régulateur l'accepte entre 17 °C (consigne réduite, 1012) et 25 °C (confort maximum, 1016) ; non envoyée. » Une valeur hors des
+limites du module (5 à 35 °C pour le chauffage, 10 à 65 °C pour l'eau
+chaude) est refusée dès son arrivée, avec la plage du régulateur de la
+dernière lecture quand elle est connue. Gladys n'écrit **jamais une autre
+valeur** que celle demandée (pas la borne la plus proche) : le refus est
+écrit dans les journaux (avertissement, avec la valeur). Si les bornes lues
+se contredisent (consigne réduite au-dessus du confort maximum, par exemple),
+le message nomme les deux paramètres ; si BSB-LAN ne donne pas l'un d'eux, le
+message le nomme. Chaque commande relit ses bornes elle-même juste avant
+d'écrire : un réglage corrigé sur BSB-LAN vaut dès la commande suivante.
+
+Saisir une consigne au clavier dans la carte de Gladys envoie aussi les
+valeurs intermédiaires (« 2 » avant « 22,5 ») si la frappe marque une pause :
+elles sont refusées (« Consigne de 2 °C refusée… »), la valeur complète part
+ensuite. Les boutons + et − n'ont pas cet effet.
+
 ### Protection et eau chaude à l'arrêt : jamais bloquées
 
 Le mode **Protection (hors-gel)** des circuits 1 et 2 et le mode **Arrêt** de
@@ -375,6 +393,18 @@ par nouvelle cause (3 au plus ; une cause qui ne diffère que par ses
 nombres est la même), puis « Sending to Gladys works again ». Les heures des
 lignes sont en UTC (le `Z` final),
 comme les écrit le journal du SDK des intégrations Gladys.
+
+## Widget du tableau de bord
+
+Le widget « Chauffage (BSB-LAN) » (Gladys avec les widgets d'intégration)
+montre, en lecture seule : la température ambiante de chaque circuit, l'eau
+chaude et l'extérieur, puis pour chaque circuit son mode, ses consignes de
+confort et réduite et son état, et pour l'eau chaude son mode, ses consignes
+et son état. Seules les valeurs que le régulateur donne apparaissent. Il n'a
+aucun bouton : les commandes passent par les cartes de l'appareil. Quand
+BSB-LAN ne répond plus, le widget le dit au lieu d'afficher d'anciennes
+valeurs. Il se met à jour au rythme des lectures, et seulement quand son
+contenu change.
 
 ## Erreurs et limites
 

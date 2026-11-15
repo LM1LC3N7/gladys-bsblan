@@ -279,18 +279,27 @@ test('0.3.0: without circuit 2 (1000 "---"), 8770 is never read nor shown, even 
 test('reduced setpoints: within the protection one and the max, never above the comfort one', async (t) => {
   const { bsb, command } = await setup(t);
   // Circuit 1: 714 = 10, 716 = 28, comfort 710 = 20.
-  assert.match((await command('heating-reduced-target', 20.5)).error, /entre 10 et 20 °C/);
-  assert.match((await command('heating-reduced-target', 9.5)).error, /entre 10 et 20 °C/);
+  assert.match(
+    (await command('heating-reduced-target', 20.5)).error,
+    /entre 10 °C \(.+?\) et 20 °C \(.+?\)/,
+  );
+  assert.match(
+    (await command('heating-reduced-target', 9.5)).error,
+    /entre 10 °C \(.+?\) et 20 °C \(.+?\)/,
+  );
   assert.equal((await command('heating-reduced-target', 16.5)).success, true);
   // Circuit 2: 1014 = 8, 1016 = 26, comfort 1010 = 21, reduced 1012 = 18.
-  assert.match((await command('hc2-reduced-target', 21.5)).error, /entre 8 et 21 °C/);
+  assert.match(
+    (await command('hc2-reduced-target', 21.5)).error,
+    /entre 8 °C \(.+?\) et 21 °C \(.+?\)/,
+  );
   assert.equal((await command('hc2-reduced-target', 17)).success, true);
   assert.match(
     (await command('hc2-setpoint', 16)).error,
-    /entre 17 et 26 °C/,
+    /entre 17 °C \(.+?\) et 26 °C \(.+?\)/,
     'comfort never below reduced',
   );
-  assert.match((await command('hc2-setpoint', 26.5)).error, /entre 17 et 26 °C/);
+  assert.match((await command('hc2-setpoint', 26.5)).error, /entre 17 °C \(.+?\) et 26 °C \(.+?\)/);
   assert.equal((await command('hc2-setpoint', 22.5)).success, true);
   assert.deepEqual(writes(bsb), [
     ['712', '16.5'],
@@ -307,7 +316,10 @@ test('hot water reduced setpoint: never above 1610, 1614, the ceiling nor 65 °C
   params[1614] = { ...params[1614], value: '80.0' };
   params[1610] = { ...params[1610], value: '70.0' };
   const { bsb, command } = await setup(t, { bsb: fakeBsbLan({ params }) });
-  assert.match((await command('dhw-reduced-target', 66)).error, /entre 10 et 65 °C/);
+  assert.match(
+    (await command('dhw-reduced-target', 66)).error,
+    /entre 10 °C \(.+?\) et 65 °C \(.+?\)/,
+  );
   // 1610 at 70 (the controller's), 1614 at 80: still 65 at most.
   assert.match((await command('dhw-reduced-target', 65.5)).error, /multiple de 1/);
   assert.equal((await command('dhw-reduced-target', 65)).success, true);
@@ -318,7 +330,10 @@ test('hot water reduced setpoint under the nominal one and the configured ceilin
   const { bsb, command } = await setup(t, { config: { ...ALLOWED, dhw_max_temperature: 45 } });
   assert.match((await command('dhw-reduced-target', 46)).error, /plafonnée à 45 °C/);
   bsb.params[1610] = { ...bsb.params[1610], value: '42' };
-  assert.match((await command('dhw-reduced-target', 44)).error, /entre 10 et 42 °C/);
+  assert.match(
+    (await command('dhw-reduced-target', 44)).error,
+    /entre 10 °C \(.+?\) et 42 °C \(.+?\)/,
+  );
   assert.equal((await command('dhw-reduced-target', 38)).success, true);
   assert.deepEqual(writes(bsb), [['1612', '38']]);
 });
@@ -653,7 +668,10 @@ test('hot water reduced setpoint: 1614 bounds it when below 1610 (out of order o
   params[1610] = { ...params[1610], value: '60' };
   params[1614] = { ...params[1614], value: '55.0' };
   const { bsb, command } = await setup(t, { bsb: fakeBsbLan({ params }) });
-  assert.match((await command('dhw-reduced-target', 57)).error, /entre 10 et 55 °C/);
+  assert.match(
+    (await command('dhw-reduced-target', 57)).error,
+    /entre 10 °C \(.+?\) et 55 °C \(.+?\)/,
+  );
   assert.equal((await command('dhw-reduced-target', 55)).success, true);
   assert.deepEqual(writes(bsb), [['1612', '55']]);
 });
