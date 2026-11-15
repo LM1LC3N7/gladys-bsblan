@@ -116,6 +116,11 @@ export const MINUTE = 60 * SECOND;
 export const HOUR = 60 * MINUTE;
 
 export const TIMINGS = {
+  /**
+   * Two nudges of the dashboard widget at least this far apart: Gladys drops
+   * one that comes within 10 s of the previous one (1 s of margin).
+   */
+  widgetSpacing: 11 * SECOND,
   /** Opening the TCP connection to the adapter. */
   connectTimeout: 3 * SECOND,
   /** One request of the polling (the adapter queries the bus: a few seconds). */

@@ -405,6 +405,10 @@ export class BsbLanApp {
      */
     this.widgetAsked = false;
     this.widgetShown = undefined;
+    /** When the last nudge left, the one waiting for the spacing, a nudge owed whatever the content. */
+    this.widgetNudgeAt = undefined;
+    this.widgetTimer = undefined;
+    this.widgetOwed = false;
     this.queueTimer = undefined;
     /** No new command before this time: a write left just before. */
     this.quietUntil = -Infinity;
@@ -659,6 +663,10 @@ export class BsbLanApp {
       this.stopTimer = undefined;
     }
     this.stopFlight.clear();
+    if (this.widgetTimer !== undefined) {
+      this.timers.clearTimeout(this.widgetTimer);
+      this.widgetTimer = undefined;
+    }
     this.dropQueued(ERRORS.queuedDropped);
     if (this.adapter) {
       this.clearTimer();
@@ -717,6 +725,8 @@ export class BsbLanApp {
    * restarts the tries.
    */
   async connectedWith(getConfig) {
+    // A nudge sent while Gladys was away was lost: one again (spaced as any).
+    this.nudgeWidget({ force: true });
     if (this.configTimer !== undefined) {
       this.timers.clearTimeout(this.configTimer);
       this.configTimer = undefined;
@@ -1184,10 +1194,17 @@ export class BsbLanApp {
   // --- Dashboard widget ------------------------------------------------------------
 
   widgetOf(language) {
+    const adapter = this.adapter;
+    // A pause (429/5xx) or refused credentials: BSB-LAN answered, the status says why.
+    const held =
+      !this.live &&
+      adapter?.online === false &&
+      (adapter.error === 'busy' || adapter.error === 'auth');
     return widgetContent({
-      values: this.adapter?.values,
+      values: adapter?.values,
       live: this.live,
-      everRead: Boolean(this.adapter?.values),
+      everRead: Boolean(adapter?.values),
+      reason: held ? word(this.status()[1], language) : undefined,
       language,
       pollSeconds: this.config.pollInterval,
     });
@@ -1198,20 +1215,46 @@ export class BsbLanApp {
     this.widgetAsked = true;
     const lang = language === 'en' || language === 'fr' ? language : this.config.language;
     const content = this.widgetOf(lang);
-    this.widgetShown ??= JSON.stringify(this.widgetOf('en'));
+    // The dashboard has this content now.
+    this.widgetShown = JSON.stringify(this.widgetOf('en'));
     return content;
   }
 
-  /** Tells the dashboards to pull the widget again, only when its content changed. */
-  nudgeWidget() {
+  /**
+   * Tells the dashboards to pull the widget again when its content changed
+   * (or `force`: after a reconnection). Gladys drops a nudge that comes
+   * within 10 s of the previous one: never two within TIMINGS.widgetSpacing;
+   * a change inside that window is nudged once at its end, with the content
+   * of that moment. One timer at most, cleared by stop().
+   */
+  nudgeWidget({ force = false } = {}) {
     if (!this.widgetAsked || this.stopped) {
       return;
     }
-    const json = JSON.stringify(this.widgetOf('en'));
-    if (json === this.widgetShown) {
+    if (force) {
+      this.widgetOwed = true;
+    }
+    if (this.widgetTimer !== undefined) {
+      // The nudge at the end of the window decides on the content then.
       return;
     }
+    const json = JSON.stringify(this.widgetOf('en'));
+    if (!this.widgetOwed && json === this.widgetShown) {
+      return;
+    }
+    const now = this.now();
+    const since = this.widgetNudgeAt === undefined ? Infinity : now - this.widgetNudgeAt;
+    if (since >= 0 && since < TIMINGS.widgetSpacing) {
+      this.widgetTimer = this.timers.setTimeout(() => {
+        this.widgetTimer = undefined;
+        this.nudgeWidget();
+      }, TIMINGS.widgetSpacing - since);
+      return;
+    }
+    // A clock set back (since < 0) is not a reason to wait longer.
     this.widgetShown = json;
+    this.widgetNudgeAt = now;
+    this.widgetOwed = false;
     try {
       this.gladys.requestWidgetRefresh?.(WIDGET_KEY);
     } catch (err) {

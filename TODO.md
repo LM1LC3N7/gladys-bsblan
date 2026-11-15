@@ -562,3 +562,19 @@ for a poll request in flight; `checkBeforeSend` on `live`).
       status; hot water mode, setpoints, status). Values of the last read only while live; a
       nudge (`requestWidgetRefresh`) only once a dashboard asked and only when the content changed.
 - Mutants N1-N14 in `scripts/mutants.mjs`.
+
+## 0.4.0 r2 (review bsblan-040-r1, 2f732c8: REFUSED, 1 I + 3 m)
+
+- [x] I1: Gladys drops a nudge within 10 s of the previous one. `nudgeWidget` now spaces nudges
+      by `TIMINGS.widgetSpacing` (11 s); a change inside the window arms one timer (cleared by
+      `stop()`) that nudges at its end with the content of that moment; `connectedWith` owes a
+      nudge (forced, spaced the same); the TTL is the read interval capped at 60 s. Tests
+      (test/widget-r1.test.js, the core's 10 s rule in the fake): W5, W2 at 30 and 600 s, W3,
+      reconnection, TTL, no timer nor nudge after stop(). Docs and CHANGELOG say ~11 s, 60 s
+      at most if a request is lost.
+- [x] m1: during a pause (429/5xx) or after refused credentials, the widget shows the status
+      text of the configuration page instead of "does not answer".
+- [x] m2: M16 (contradictory bounds at the last read: 5-35 message) and M21 (no nudge after
+      stop) killed by tests.
+- [x] m3: never two nudges within 11 s: at most ~5.5 per minute, none dropped by the core.
+- Mutants N15-N22; N13's anchor follows the new code.

@@ -403,8 +403,12 @@ confort et réduite et son état, et pour l'eau chaude son mode, ses consignes
 et son état. Seules les valeurs que le régulateur donne apparaissent. Il n'a
 aucun bouton : les commandes passent par les cartes de l'appareil. Quand
 BSB-LAN ne répond plus, le widget le dit au lieu d'afficher d'anciennes
-valeurs. Il se met à jour au rythme des lectures, et seulement quand son
-contenu change.
+valeurs (pendant une pause ou après des identifiants refusés, il affiche cet
+état). Il suit les lectures : quand son contenu change, il demande aux
+tableaux de bord de le relire. Gladys accepte au plus une demande par 10 s,
+un changement apparaît donc en 11 s environ ; un tableau de bord le relit
+aussi au moins chaque minute (ou à l'intervalle de lecture s'il est plus
+court), ce qui couvre une demande perdue pendant un redémarrage de Gladys.
 
 ## Erreurs et limites
 

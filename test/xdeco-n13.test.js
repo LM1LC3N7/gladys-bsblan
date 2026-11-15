@@ -425,6 +425,6 @@ test('n° 13: the widget content fits the budget and the text lengths', () => {
   assert.equal(
     widgetContent({ values, live: true, everRead: true, language: 'en', pollSeconds: 9000 })
       .ttl_seconds,
-    3600,
+    60,
   );
 });

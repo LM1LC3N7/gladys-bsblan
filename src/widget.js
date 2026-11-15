@@ -3,8 +3,9 @@
 // heating circuit its room temperature, comfort and reduced setpoints, mode
 // and status; the hot water when the controller has it. Built from the
 // values of the last read, and only while that read is current (an adapter
-// that stopped answering shows a line saying so, never old values as
-// current). Pure: src/app.js gives the values and nudges the dashboards.
+// that stopped answering shows a line saying so, a pause or refused
+// credentials their status, never old values as current). Pure: src/app.js
+// gives the values and nudges the dashboards (spaced as Gladys requires).
 // -----------------------------------------------------------------------------
 
 import { DHW_MODE_NAMES, MODE_NAMES, STATE_TEXTS, num, word } from './i18n.js';
@@ -12,8 +13,14 @@ import { modeText } from './devices.js';
 
 export const WIDGET_KEY = 'heating';
 
-/** The core keeps a content for `ttl_seconds` (10–3600). */
-const TTL = { min: 10, max: 3600 };
+/**
+ * The core keeps a content for `ttl_seconds` (10–3600): the read interval,
+ * at most 60 s, so that a nudge lost on the way (Gladys away) costs a minute
+ * at most.
+ */
+const TTL = { min: 10, max: 60 };
+/** `text` body: 300 characters at most. */
+const BODY_TEXT = 300;
 /** `status` item: label and value up to 40 characters; `value` tile label up to 24. */
 const ITEM_TEXT = 40;
 
@@ -52,13 +59,14 @@ const statusText = (read, language) =>
  * (src/params.js decode); `live`: whether they are current; `everRead`:
  * whether the adapter answered once; `pollSeconds`: the read interval.
  */
-export function widgetContent({ values, live, everRead, language, pollSeconds }) {
+export function widgetContent({ values, live, everRead, reason, language, pollSeconds }) {
   const ttl = Math.min(TTL.max, Math.max(TTL.min, Math.round(pollSeconds) || 60));
   if (!live || !values) {
-    const text = everRead ? TEXTS.offline : TEXTS.waiting;
+    // `reason`: the status of a pause or of refused credentials (BSB-LAN answered).
+    const text = reason ?? word(everRead ? TEXTS.offline : TEXTS.waiting, language);
     return {
       ttl_seconds: ttl,
-      components: [{ type: 'text', variant: 'body', text: word(text, language) }],
+      components: [{ type: 'text', variant: 'body', text: text.slice(0, BODY_TEXT) }],
     };
   }
   const two = values.mode2 !== undefined;

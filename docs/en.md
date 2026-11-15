@@ -374,8 +374,12 @@ outside, then for each circuit its mode, its comfort and reduced setpoints
 and its status, and for the hot water its mode, setpoints and status. Only
 the values the controller gives appear. It has no button: the commands go
 through the cards of the device. When BSB-LAN stops answering, the widget
-says so instead of showing old values. It follows the reads, and is
-refreshed only when its content changes.
+says so instead of showing old values (during a pause or after refused
+credentials, it shows that status). It follows the reads: when its content
+changes, it asks the dashboards to refresh it. Gladys takes at most one such
+request per 10 s, so a change shows within about 11 s; a dashboard also
+pulls it again at least every minute (or at the read interval, when
+shorter), which covers a request lost while Gladys was restarting.
 
 ## Errors and limits
 

@@ -121,8 +121,11 @@ scripts/mutants.mjs          mutants of the fixes, run one at a time in a privat
   first, else `buswritable` of /JI, never believed before firmware 5.1.19.
 - **Extra parameters**: read only, forever; never a command role.
 - **Widget** (`heating`, 0.4.0): read only, no button; only the values of a
-  current read (else a line saying BSB-LAN does not answer); refreshed only
-  after a dashboard asked and when its content changed.
+  current read (else a line saying BSB-LAN does not answer, or the status
+  of a pause or of refused credentials); nudged only after a dashboard
+  asked, when its content changed or after a reconnection, never two nudges
+  within 11 s (Gladys drops one within 10 s: a change in that window is
+  nudged once at its end); TTL = read interval, 60 s at most.
 - **Hot water**: never above the configured ceiling (65 °C by default) nor
   65 °C nor the controller's nominal max (1614), whole degrees only.
 - **Energy**: never an `energy-sensor` index nor `publishEnergyConsumption`

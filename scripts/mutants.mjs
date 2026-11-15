@@ -394,7 +394,7 @@ const MUTANTS = [
   [
     'N13-widget-nudged-on-every-publish',
     'src/app.js',
-    '    if (json === this.widgetShown) {\n      return;\n    }\n',
+    '    if (!this.widgetOwed && json === this.widgetShown) {\n      return;\n    }\n',
     '',
   ],
   [
@@ -402,6 +402,55 @@ const MUTANTS = [
     'src/app.js',
     '    if (!this.widgetAsked || this.stopped) {',
     '    if (this.stopped) {',
+  ],
+  // Review bsblan-040-r1: the nudges spaced as Gladys requires, the TTL, m1, M16, M21.
+  [
+    'N15-no-spacing',
+    'src/app.js',
+    '    if (since >= 0 && since < TIMINGS.widgetSpacing) {',
+    '    if (false) {',
+  ],
+  [
+    'N16-no-nudge-on-reconnection',
+    'src/app.js',
+    '    this.nudgeWidget({ force: true });\n    if (this.configTimer',
+    '    if (this.configTimer',
+  ],
+  [
+    'N17-timer-kept-after-stop',
+    'src/app.js',
+    '      this.timers.clearTimeout(this.widgetTimer);\n      this.widgetTimer = undefined;\n',
+    '',
+  ],
+  [
+    'N18-ttl-not-capped',
+    'src/widget.js',
+    'const TTL = { min: 10, max: 60 };',
+    'const TTL = { min: 10, max: 3600 };',
+  ],
+  [
+    'N19-pause-as-unreachable',
+    'src/app.js',
+    '      reason: held ? word(this.status()[1], language) : undefined,',
+    '      reason: undefined,',
+  ],
+  [
+    'N20-empty-range-as-last-read',
+    'src/app.js',
+    'if (range?.low && range.low.value <= range.high.value) {',
+    'if (range?.low) {',
+  ],
+  [
+    'N21-nudge-after-stop',
+    'src/app.js',
+    '    if (!this.widgetAsked || this.stopped) {',
+    '    if (!this.widgetAsked) {',
+  ],
+  [
+    'N22-deferred-nudge-never-sent',
+    'src/app.js',
+    '        this.widgetTimer = undefined;\n        this.nudgeWidget();\n',
+    '        this.widgetTimer = undefined;\n',
   ],
 ];
 

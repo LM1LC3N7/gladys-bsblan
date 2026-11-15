@@ -16,9 +16,13 @@ Planned as 0.4.0 (minor release: a new feature).
 
 - A read-only dashboard widget "Heating (BSB-LAN)" (forum t/11458 n° 13):
   room temperatures, comfort and reduced setpoints, mode and status of each
-  heating circuit, and the hot water. No button. It says when BSB-LAN does
-  not answer instead of showing old values, and is refreshed only when its
-  content changes.
+  heating circuit, and the hot water. No button. Its content never holds
+  old values: when BSB-LAN does not answer it says so (a pause or refused
+  credentials: their status). Gladys takes at most one refresh request per
+  10 s: the widget asks again once at the end of those 10 s when its content
+  changed meanwhile, and after a reconnection to Gladys; a dashboard keeps a
+  content 60 s at most (less with a shorter read interval). So a dashboard
+  shows a change within about 11 s, within a minute if a request was lost.
 
 ### Changed
 
