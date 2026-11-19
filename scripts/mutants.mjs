@@ -465,6 +465,15 @@ const MUTANTS = [
     '      this.widgetOwed = true;\n    }\n    return content;',
     '    }\n    return content;',
   ],
+  // t/11458 n° 15 (0.4.1): the extra parameters without a feature are said.
+  [
+    'N25-no-update-note',
+    'src/app.js',
+    '      if (missing.length > 0) {\n        notes.push(T.notes.extraNotInDevice(missing));',
+    '      if (false) {\n        notes.push(T.notes.extraNotInDevice(missing));',
+  ],
+  ['N26-no-no-value-note', 'src/app.js', '    if (noValue.length > 0) {', '    if (false) {'],
+  ['N27-error-said-inactive', 'src/params.js', "    return 'error';", "    return 'inactive';"],
 ];
 
 function apply(file, from, to) {

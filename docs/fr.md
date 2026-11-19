@@ -98,6 +98,14 @@ sont ignorés et listés dans l'état de l'intégration. Chaque paramètre
 allonge chaque lecture (l'adaptateur interroge le bus un paramètre après
 l'autre).
 
+Un paramètre ajouté **après** la création de l'appareil n'y entre pas tout
+seul : Gladys n'ajoute une fonctionnalité à un appareil déjà créé que par le
+bouton « Mettre à jour » de l'onglet Découverte de l'intégration. L'état de
+l'intégration le rappelle avec les numéros concernés. Un paramètre pour
+lequel BSB-LAN ne donne pas de valeur utilisable (paramètre inconnu du
+régulateur, « --- », valeur illisible) n'a pas de fonctionnalité : l'état
+le nomme, avec la raison.
+
 Lire des catégories entières (`/JK=ALL`) n'est pas proposé : des centaines de
 paramètres, une réponse trop grosse, une lecture du bus de plusieurs minutes
 et autant de fonctionnalités dans Gladys.

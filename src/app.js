@@ -51,6 +51,7 @@ import {
   COMMAND_ROLES,
   buildDevice,
   extraKindOf,
+  extraRole,
   deviceIds,
   deviceStates,
   parseDeviceId,
@@ -995,6 +996,7 @@ export class BsbLanApp {
         values.room2 === undefined ? this.now() + TIMINGS.room2Recheck : undefined;
     }
     this.rememberExtras(info.mac, values.extra);
+    adapter.extraIssues = values.extraIssues;
     adapter.model ??= identificationOf(merged);
     adapter.info = info;
     adapter.mac = info.mac;
@@ -1477,6 +1479,28 @@ export class BsbLanApp {
     }
     if (this.config.extraIgnored.length > 0) {
       notes.push(T.notes.extraIgnored(this.config.extraIgnored));
+    }
+    // Typed, read, but no value: said, with why (t/11458 n° 15).
+    const noValue = Object.entries(adapter.extraIssues ?? {})
+      .filter(([id]) => this.config.extraParams.includes(id))
+      .slice(0, LIMITS.extraNoted);
+    if (noValue.length > 0) {
+      notes.push(T.notes.extraNoValue(noValue));
+    }
+    // Read with a value, but the device was created before: Gladys adds a
+    // feature to a created device only through "Update" in Discovery.
+    const device = this.createdDevice(deviceIds(this.gladys, adapter.mac).device);
+    if (device) {
+      const has = new Set((device.features ?? []).map((f) => f?.external_id));
+      const ids = deviceIds(this.gladys, adapter.mac);
+      const missing = this.config.extraParams.filter(
+        (id) =>
+          Object.hasOwn(this.extraSeen.get(adapter.mac) ?? {}, id) &&
+          !has.has(ids.feature(extraRole(id))),
+      );
+      if (missing.length > 0) {
+        notes.push(T.notes.extraNotInDevice(missing));
+      }
     }
     return [
       true,

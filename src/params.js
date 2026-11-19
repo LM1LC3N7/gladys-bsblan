@@ -297,15 +297,47 @@ export function extraOf(entry) {
 }
 
 /**
+ * Why a read-only parameter typed in the configuration gave no value (said
+ * in the status, t/11458 n° 15): `absent` (not in the answer), `error`
+ * (BSB-LAN's error code, a parameter the controller does not have),
+ * `inactive` ("---"), `fahrenheit`, `unreadable` (a value the integration
+ * cannot type: too long, not a number where BSB-LAN says one, out of range).
+ * Undefined when it gives a value.
+ */
+export function extraIssue(entry) {
+  if (!entry) {
+    return 'absent';
+  }
+  if (extraOf(entry) !== undefined) {
+    return undefined;
+  }
+  const error = field(entry, 'error');
+  if (error !== undefined && error !== 0 && error !== '0') {
+    return 'error';
+  }
+  const value = field(entry, 'value');
+  if (value === null || value === undefined || INACTIVE.has(String(value).trim())) {
+    return 'inactive';
+  }
+  if (FAHRENHEIT.has(String(field(entry, 'unit') ?? '').trim())) {
+    return 'fahrenheit';
+  }
+  return 'unreadable';
+}
+
+/**
  * The decoded values of one poll (`answer`: the /JQ answers merged;
  * `extras`: the read-only parameters typed in the configuration).
  */
 export function decode(bus, answer, extras = []) {
-  const values = { fahrenheit: false, access: {}, extra: {} };
+  const values = { fahrenheit: false, access: {}, extra: {}, extraIssues: {} };
   for (const id of extras) {
-    const read = extraOf(entryOf(answer, id));
+    const entry = entryOf(answer, id);
+    const read = extraOf(entry);
     if (read) {
       values.extra[id] = read;
+    } else {
+      values.extraIssues[id] = extraIssue(entry);
     }
   }
   if (isObject(answer)) {

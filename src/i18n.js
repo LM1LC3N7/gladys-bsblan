@@ -266,6 +266,16 @@ export const T = {
         `Extra parameters ignored (not a number, already read, repeated or over 10): ${list.join(', ')}.`,
         `Paramètres supplémentaires ignorés (pas un numéro, déjà lus, en double ou au-delà de 10) : ${list.join(', ')}.`,
       ),
+    extraNoValue: (list) =>
+      both(
+        `Extra parameters without a value from BSB-LAN, so without a feature: ${list.map(([id, why]) => `${id} (${EXTRA_ISSUES[why].en})`).join(', ')}.`,
+        `Paramètres supplémentaires sans valeur de BSB-LAN, donc sans fonctionnalité : ${list.map(([id, why]) => `${id} (${EXTRA_ISSUES[why].fr})`).join(', ')}.`,
+      ),
+    extraNotInDevice: (list) =>
+      both(
+        `Extra parameters read but not yet in the created device: ${list.join(', ')}. Open the Discovery tab of the integration and click "Update" on the device to add them.`,
+        `Paramètres supplémentaires lus mais pas encore dans l'appareil créé : ${list.join(', ')}. Ouvrez l'onglet Découverte de l'intégration et cliquez sur « Mettre à jour » sur l'appareil pour les ajouter.`,
+      ),
     otherAdapter: both(
       'The created device belongs to another adapter (another MAC address): add the new device from the Discovery tab.',
       "L'appareil créé appartient à un autre adaptateur (autre adresse MAC) : ajoutez le nouvel appareil depuis l'onglet Découverte.",
@@ -308,6 +318,21 @@ export const BOUND_NAMES = {
 const boundName = (bound) => {
   const name = BOUND_NAMES[bound.source];
   return bound.id ? both(`${name.en}, ${bound.id}`, `${name.fr}, ${bound.id}`) : name;
+};
+
+/** Why an extra parameter gave no value (src/params.js extraIssue). */
+const EXTRA_ISSUES = {
+  absent: both('not in the answer of BSB-LAN', 'absent de la réponse de BSB-LAN'),
+  error: both(
+    'BSB-LAN error: parameter unknown to the controller?',
+    'erreur de BSB-LAN : paramètre inconnu du régulateur ?',
+  ),
+  inactive: both('inactive, "---"', 'inactif, « --- »'),
+  fahrenheit: both('in °F', 'en °F'),
+  unreadable: both(
+    'value not readable as a number or a text',
+    'valeur illisible en nombre ou en texte',
+  ),
 };
 
 /** The errors a command answers to Gladys. */

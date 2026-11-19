@@ -586,3 +586,16 @@ for a poll request in flight; `checkBeforeSend` on `live`).
       Test and mutant N24. Docs ("about 11 s") stay true.
 - [x] n2: the early return on `widgetTimer` (one timer at most) pinned by a test (three changes in
       the window, stop(), no widget timer fires after): mutant N23 (the reviewer's X8).
+
+## 0.4.1 (XDECO, t/11458 n° 15: extra parameters after a complete reconfiguration)
+
+- Cause of 2 (1020, "1.46"): the value was read (a VALS number without unit: a plain value),
+  the feature was in the discovered device; the device had been created before 1020 was typed,
+  and Gladys adds a feature to a created device only through "Update" in Discovery (a structure
+  change, `structure_changed`). The integration said nothing. Now a status note names the extra
+  parameters read but missing from the created device (`extraNotInDevice`).
+- Cause of 1 (1042): not a parameter the integration ever read itself (not in POLL nor HC2_REST):
+  most likely an extra parameter of the old configuration, gone with it (and its device with the
+  integration). Typed again, it needs "Update" as 1020; if BSB-LAN gives no usable value, the new
+  note `extraNoValue` names it with why (`extraIssue`: absent, error, inactive, °F, unreadable).
+- Tests test/xdeco-n15.test.js; mutants N25-N27.

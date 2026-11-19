@@ -109,6 +109,8 @@ export const LIMITS = {
   textLength: 120,
   /** A read-only parameter typed in the configuration: plain numbers within ±this. */
   extraNumber: 1_000_000,
+  /** Extra parameters without a value named in the status, at most. */
+  extraNoted: 10,
 };
 
 export const SECOND = 1_000;

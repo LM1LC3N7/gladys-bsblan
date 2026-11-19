@@ -10,6 +10,16 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Extra parameters that gave no feature, silently (forum t/11458 n° 15:
+  1020 typed after a complete reconfiguration, 1042 gone). Gladys adds a
+  feature to a device already created only through "Update" in the
+  Discovery tab: the status of the integration now names the extra
+  parameters read but not yet in the created device, and says to click
+  "Update". An extra parameter for which BSB-LAN gives no usable value
+  (unknown to the controller, "---", unreadable) is named too, with why.
+
 ## [0.4.0] - 2026-11-15
 
 Planned as 0.4.0 (minor release: a new feature).

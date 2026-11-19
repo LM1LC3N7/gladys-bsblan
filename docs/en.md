@@ -92,6 +92,13 @@ already read by the integration, repeated, over 10 or mistyped are ignored
 and listed in the status of the integration. Each parameter lengthens each
 read (the adapter queries the bus one parameter after the other).
 
+A parameter added **after** the device was created does not enter it by
+itself: Gladys adds a feature to a created device only through the
+"Update" button of the Discovery tab of the integration. The status of the
+integration says so, with the numbers concerned. A parameter for which
+BSB-LAN gives no usable value (unknown to the controller, "---", a value
+that cannot be read) has no feature: the status names it, with why.
+
 Reading whole categories (`/JK=ALL`) is not offered: hundreds of
 parameters, an answer too large, a bus read of several minutes, and as many
 features in Gladys.
