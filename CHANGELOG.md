@@ -10,6 +10,8 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-19
+
 ### Fixed
 
 - Extra parameters that gave no feature, silently (forum t/11458 n° 15:
@@ -323,7 +325,8 @@ Planned as 0.4.0 (minor release: a new feature).
 - "Test the connection" button; documentation in English and French;
   `LICENSE` and `THIRD_PARTY_NOTICES.md` shipped in the image.
 
-[Unreleased]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/LM1LC3N7/gladys-bsblan/compare/v0.3.2...v0.3.3
