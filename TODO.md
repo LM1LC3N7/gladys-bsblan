@@ -599,3 +599,4 @@ for a poll request in flight; `checkBeforeSend` on `live`).
   integration). Typed again, it needs "Update" as 1020; if BSB-LAN gives no usable value, the new
   note `extraNoValue` names it with why (`extraIssue`: absent, error, inactive, °F, unreadable).
 - Tests test/xdeco-n15.test.js; mutants N25-N27.
+- [ ] 0.4.1 r1 mineur : la note « donc sans fonctionnalité » est fausse quand l'appareil a déjà param-<id> et que le paramètre donne « --- » (src/i18n.js:269).
