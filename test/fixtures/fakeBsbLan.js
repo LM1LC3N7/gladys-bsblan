@@ -102,10 +102,12 @@ export const inactive = (name = 'Inactive') => ({
 });
 
 /**
- * A plain-number parameter the controller gives no value for now, as
- * BSB-LAN 5.1.42 answered XDECO's 8774 while circuit 2 was in Protection
- * (t/11458 n° 17): error 0, "---", the disabled flag in the payload, its
- * type and unit printed as with a value.
+ * A plain-number parameter the controller gives no value for now,
+ * RECONSTRUCTED: XDECO's n° 17 (t/11458) shows of his 8774 in Protection
+ * only `name`, `error: 0`, `value: "---"`, `payload: "010000"` (the
+ * disabled flag of the telegram) and "..."; the type and unit printed with
+ * "---" come from python-bsblan's fixture tests/fixtures/state.json (770 at
+ * "---" with TEMP, VALS, °C). The full /JQ=8774 in Protection is to ask him.
  */
 export const disabled = (name, unit = '°C', typeName = 'TEMP') => ({
   name,

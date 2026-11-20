@@ -24,7 +24,9 @@ the notes of the version's GitHub Release.
   at "---" (a sensor not fitted), an answer without its type, in °F or in
   error: unchanged, no feature. A device created before gets the empty
   feature through "Update": the status says so. Commands on a setpoint at
-  "---" stay refused as any command without a fresh value.
+  "---" stay refused as any command without a fresh value. Gladys cannot
+  empty a value: a setpoint back at "---" keeps showing the last value
+  received, and the status says so (and which ones are still empty).
 - The status said "so without a feature" of an extra parameter at "---"
   whose feature already exists (review 0.4.1 r1): it now says the feature
   waits for a value.

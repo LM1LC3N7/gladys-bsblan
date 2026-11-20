@@ -273,8 +273,13 @@ export const T = {
       ),
     extraPending: (list) =>
       both(
-        `Extra parameters BSB-LAN gives as "---" for now: ${list.join(', ')}. Their feature exists (or is offered in Discovery), empty until the controller gives a value.`,
-        `Paramètres supplémentaires que BSB-LAN donne à « --- » pour l'instant : ${list.join(', ')}. Leur fonctionnalité existe (ou est proposée dans Découverte), vide tant que le régulateur ne donne pas de valeur.`,
+        `Extra parameters BSB-LAN gives as "---" for now: ${list.map(([id, shown]) => `${id} (${PENDING_SHOWN[shown ? 'last' : 'empty'].en})`).join(', ')}. Their feature exists (or is offered in Discovery); Gladys cannot empty a value.`,
+        `Paramètres supplémentaires que BSB-LAN donne à « --- » pour l'instant : ${list.map(([id, shown]) => `${id} (${PENDING_SHOWN[shown ? 'last' : 'empty'].fr})`).join(', ')}. Leur fonctionnalité existe (ou est proposée dans Découverte) ; Gladys ne sait pas vider une valeur.`,
+      ),
+    pendingInDevice: (list) =>
+      both(
+        `Setpoints BSB-LAN gives as "---" for now: ${list.map(([role, shown]) => `${FEATURE_NAMES[role].en} (${PENDING_SHOWN[shown ? 'last' : 'empty'].en})`).join(', ')}. Gladys cannot empty a value.`,
+        `Consignes que BSB-LAN donne à « --- » pour l'instant : ${list.map(([role, shown]) => `${FEATURE_NAMES[role].fr} (${PENDING_SHOWN[shown ? 'last' : 'empty'].fr})`).join(', ')}. Gladys ne sait pas vider une valeur.`,
       ),
     pendingNotInDevice: (roles) =>
       both(
@@ -331,6 +336,15 @@ const boundName = (bound) => {
 };
 
 /** Why an extra parameter gave no value (src/params.js extraIssue). */
+/** What a feature at "---" shows (r1 B1): nothing yet, or the last value received. */
+const PENDING_SHOWN = {
+  empty: both('empty, no value yet', 'vide, aucune valeur encore'),
+  last: both(
+    'the last value received, no longer given by the controller',
+    'la dernière valeur reçue, que le régulateur ne donne plus',
+  ),
+};
+
 const EXTRA_ISSUES = {
   absent: both('not in the answer of BSB-LAN', 'absent de la réponse de BSB-LAN'),
   error: both(

@@ -41,10 +41,13 @@ Gladys ⇄ SDK ⇄ src/handlers.js ⇄ src/app.js (BsbLanApp)
 - **Setpoints at "---"** (0.4.2, t/11458 n° 17): a setpoint the controller
   gives as `"---"` with its type (`dataType_family` VALS or `dataType_name`
   TEMP, error 0) gets its feature at once, empty until the first value
-  (never 0): 710, 712, 8744, 1010, 1012, 8774, 1610, 1612 (hot water once
-  1600 gave a value). An extra parameter at "---" with its type too. Never a
-  measured temperature (a sensor not fitted), never without the type, in °F
-  or in error. Commands on it refused as without a fresh value.
+  (never 0): 710, 712, 8744, 1010, 1012, 8774, 1610, 1612, each circuit
+  once its mode (700, 1000, 1600) gave a value. An extra parameter at "---"
+  with its type too (a temperature type needs its unit). Never a measured
+  temperature (a sensor not fitted), never without the type, on a °F
+  controller or in error. Gladys cannot empty a value: back at "---", the
+  last value stays shown and the status says so. Commands on it refused as
+  without a fresh value.
 - **Room temperature of circuit 2** (8770, 0.3.0): read with the rest of
   circuit 2, shown only when valid (not "---", in °C, −60 to 120 °C), a
   `probe` (8740 stays the only room temperature Gladys averages). Without

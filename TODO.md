@@ -633,4 +633,22 @@ for a poll request in flight; `checkBeforeSend` on `live`).
 - Tests test/xdeco-n17.test.js (XDECO's 8774 answer as fixture `disabled`); mutants X1-X11.
 - Not verified: on a real adapter, whether `unit` is printed with "---" (the role fixes °C, the
   unit is not required for built-in roles, required for an extra temperature); whether an
-  older JSON API (1.x) prints `dataType_family` (without it, nothing changes).
+  older JSON API (1.x) prints `dataType_family` (without it, nothing changes). The fixture
+  `disabled` is RECONSTRUCTED (r1 m4): XDECO's n° 17 shows only name, error, value, payload and
+  "..."; the type and unit with "---" come from python-bsblan's fixture (770). Ask him for the
+  full `/JQ=8774` in Protection in the forum answer; without the family, nothing changes for him.
+- Review r1 (`_lots/hors-lot/bsblan-pending-r1.md`, À CORRIGER, security OK) fixed:
+  - B1: Gladys cannot empty a value. A setpoint back at "---" after a value kept showing it with
+    nothing said. Now `pendingInDevice` names the setpoints at "---" already in the device, each
+    "empty, no value yet" or "the last value received, no longer given by the controller"
+    (`publisher.valued`: pushed since the start, else `last_value` of the created feature);
+    `extraPending` says the same per id, "Gladys cannot empty a value". Docs. Tests check the
+    whole text in both cases (fr and en).
+  - m1: a TEMP_* type without its unit in an extra parameter is not guessed (a 'number' feature
+    would never show the °C value). m2: a controller in °F gets no empty feature at all (`pending`
+    and `extraPending` cleared, the issue says °F). m3: circuit 1 setpoints only once 700 gave a
+    value (`HC1_KEYS`), as 1000 and 1600. m4 above. m5: docs say to keep `replaceDisabled` at
+    "---" or "None" (0 would be read as 0 °C; behaviour unchanged). m6: `noValue` drops 'pending'
+    by its reason, not by the truncated list. m7: the command test uses writable (`readwrite` 0)
+    parameters at "---".
+  - Mutants Y1-Y6.

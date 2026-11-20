@@ -121,6 +121,7 @@ test("n° 17: isInactive, pendingOf, pendingTemperature on XDECO's answer and it
   assert.deepEqual(pendingOf({ ...d, unit: '&deg;C' }), { ...pendingOf(d), unit: '°C' });
   assert.equal(pendingOf({ ...d, unit: '°F' }), undefined, 'never a °F feature');
   assert.equal(pendingOf(disabled('Hot', '°F', 'TEMP_WORD')), undefined, 'not even as a number');
+  assert.equal(pendingOf(disabled('Odd', '°F', 'VALUE')), undefined, 'any VALS in °F: nothing');
   assert.equal(pendingOf({ ...d, error: 7 }), undefined);
   assert.equal(pendingOf(flow2Value()), undefined, 'a value is not pending');
   assert.deepEqual(pendingOf(disabled('Heating curve slope', '', 'GRADIENT_SMALL')), {
@@ -261,20 +262,35 @@ test('n° 17: configured while circuit 2 is in Protection, the flow setpoint fea
   assert.deepEqual(s.statesOf('hc2-flow-setpoint'), [], 'no state while "---", never 0');
   assert.equal(s.gladys.fake.lastState(feature('hc2-flow-setpoint')), undefined);
   assert.doesNotMatch(s.status(), /Mettre à jour/);
-  // Circuit 2 back in Reduced: 8774 gives 47.8, published; later "---" again: nothing new.
+  assert.equal(
+    s.status(),
+    "Connecté : RVS21.831F/127 sur le bus BSB (BSB-LAN 5.1.33-20261027002928). Consignes que BSB-LAN donne à « --- » pour l'instant : Consigne de départ (circuit 2) (vide, aucune valeur encore). Gladys ne sait pas vider une valeur.",
+  );
+  assert.equal(
+    s.gladys.fake.connectionStatus.message.en,
+    'Connected: RVS21.831F/127 on the BSB bus (BSB-LAN 5.1.33-20261027002928). Setpoints BSB-LAN gives as "---" for now: Flow setpoint (circuit 2) (empty, no value yet). Gladys cannot empty a value.',
+  );
+  // Circuit 2 back in Reduced: 8774 gives 47.8, published, the note goes.
   s.bsb.params[1000] = fullParams()[1000];
   s.bsb.params[8774] = flow2Value();
   await s.advance(31 * SECOND);
   assert.equal(s.gladys.fake.lastState(feature('hc2-flow-setpoint')), 47.8);
+  assert.doesNotMatch(s.status(), /---/);
+  // "---" again (r1 B1): nothing published (never 0), Gladys cannot empty a
+  // value and keeps 47.8: the status says so, whole text.
   s.bsb.params[8774] = flow2Disabled();
   const count = s.statesOf('hc2-flow-setpoint').length;
   await s.advance(31 * SECOND);
-  assert.equal(
-    s.statesOf('hc2-flow-setpoint').length,
-    count,
-    'nothing published, Gladys keeps 47.8',
-  );
+  assert.equal(s.statesOf('hc2-flow-setpoint').length, count, 'nothing published');
   assert.ok(s.statesOf('hc2-flow-setpoint').every((x) => x.state !== 0));
+  assert.equal(
+    s.status(),
+    "Connecté : RVS21.831F/127 sur le bus BSB (BSB-LAN 5.1.33-20261027002928). Consignes que BSB-LAN donne à « --- » pour l'instant : Consigne de départ (circuit 2) (la dernière valeur reçue, que le régulateur ne donne plus). Gladys ne sait pas vider une valeur.",
+  );
+  assert.equal(
+    s.gladys.fake.connectionStatus.message.en,
+    'Connected: RVS21.831F/127 on the BSB bus (BSB-LAN 5.1.33-20261027002928). Setpoints BSB-LAN gives as "---" for now: Flow setpoint (circuit 2) (the last value received, no longer given by the controller). Gladys cannot empty a value.',
+  );
 });
 
 test('n° 17: a device created before: the status says to click "Update", the ids never change', async (t) => {
@@ -354,7 +370,7 @@ test('n° 17: an extra parameter at "---" with its type: an empty feature of the
   assert.deepEqual(s.statesOf('param-8326'), []);
   assert.match(
     s.status(),
-    /Paramètres supplémentaires que BSB-LAN donne à « --- » pour l'instant : 1020, 8326\. Leur fonctionnalité existe/,
+    /Paramètres supplémentaires que BSB-LAN donne à « --- » pour l'instant : 1020 \(vide, aucune valeur encore\), 8326 \(vide, aucune valeur encore\)\. Leur fonctionnalité existe \(ou est proposée dans Découverte\) ; Gladys ne sait pas vider une valeur\./,
   );
   assert.match(s.status(), /sans fonctionnalité : 2000 \(inactif, « --- »\), 2001 \(inactif/);
   // The value comes: published as the kind fixed at "---".
@@ -398,16 +414,23 @@ test('n° 17 (0.4.1 r1 minor): a created extra feature whose parameter turns "--
   const count = s.statesOf('param-1020').length;
   await s.advance(31 * SECOND);
   assert.doesNotMatch(s.status(), /sans fonctionnalité/);
-  assert.match(s.status(), /que BSB-LAN donne à « --- » pour l'instant : 1020\./);
+  assert.equal(
+    s.status(),
+    "Connecté : RVS21.831F/127 sur le bus BSB (BSB-LAN 5.1.33-20261027002928). Paramètres supplémentaires que BSB-LAN donne à « --- » pour l'instant : 1020 (la dernière valeur reçue, que le régulateur ne donne plus). Leur fonctionnalité existe (ou est proposée dans Découverte) ; Gladys ne sait pas vider une valeur.",
+  );
+  assert.match(
+    s.gladys.fake.connectionStatus.message.en,
+    /1020 \(the last value received, no longer given by the controller\)\. Their feature exists \(or is offered in Discovery\); Gladys cannot empty a value\./,
+  );
   assert.equal(s.statesOf('param-1020').length, count, 'nothing published');
 });
 
 test('n° 17: a command on a setpoint at "---" is refused as before, nothing written', async (t) => {
   const params = {
     ...fullParams(),
-    710: disabled('Comfort setpoint'),
+    710: { ...disabled('Comfort setpoint'), readwrite: 0 },
     1000: { ...fullParams()[1000], value: '2', desc: 'Reduced' },
-    1010: disabled('Comfort setpoint HC2'),
+    1010: { ...disabled('Comfort setpoint HC2'), readwrite: 0 },
   };
   const s = await setup(t, { params, config: { ...CONFIG, allow_commands: true } });
   await s.create();
@@ -428,4 +451,68 @@ test('n° 17: without the option, a command on a setpoint at "---" is refused to
   const ack = await s.command('heating-setpoint', 21);
   assert.equal(ack.success, false);
   assert.deepEqual(s.bsb.writes(), []);
+});
+
+test('r1 m1: an extra temperature type (TEMP_SHORT...) at "---" without its unit is not guessed', async (t) => {
+  assert.equal(pendingOf(disabled('Short', '', 'TEMP_SHORT')), undefined);
+  assert.equal(pendingOf(disabled('Word', '', 'TEMP_WORD')), undefined);
+  assert.deepEqual(pendingOf(disabled('Short', '°C', 'TEMP_SHORT')).kind, 'temperature');
+  const s = await setup(t, {
+    params: { ...fullParams(), 2050: disabled('Short', '', 'TEMP_SHORT') },
+    config: { ...CONFIG, extra_parameters: '2050' },
+  });
+  assert.ok(!s.roles(s.discovered()).includes('param-2050'));
+  await s.create();
+  await s.advance(31 * SECOND);
+  assert.match(s.status(), /sans fonctionnalité : 2050 \(inactif, « --- »\)/);
+  // Its value comes in °C: a temperature feature, as always.
+  s.bsb.params[2050] = { ...s.bsb.params[2050], value: '42.5', unit: '°C' };
+  await s.advance(31 * SECOND);
+  const f = s.discovered().features.find((x) => x.external_id === feature('param-2050'));
+  assert.equal(f.category, 'temperature-sensor');
+});
+
+test('r1 m2: a controller in °F: no empty °C feature, the extra parameter said in °F', async (t) => {
+  const params = {
+    ...fullParams(),
+    8700: { ...fullParams()[8700], value: '45.7', unit: '°F' },
+    1000: protection(),
+    8774: { ...flow2Disabled(), unit: '' },
+    1610: { ...disabled('DHW nominal'), unit: '' },
+    1020: disabled('Heating curve slope', '', 'GRADIENT_SMALL'),
+  };
+  const v = decode('bsb', params, ['1020']);
+  assert.equal(v.fahrenheit, true);
+  assert.deepEqual(v.pending, {});
+  assert.deepEqual(v.extraPending, {});
+  assert.deepEqual(v.extraIssues, { 1020: 'fahrenheit' });
+  const s = await setup(t, { params, config: { ...CONFIG, extra_parameters: '1020' } });
+  const roles = s.roles(s.discovered());
+  assert.ok(!roles.includes('hc2-flow-setpoint'));
+  assert.ok(!roles.includes('dhw-setpoint'), 'the controller gives 1610 a value: not pending');
+  assert.ok(!roles.includes('param-1020'));
+  await s.create();
+  await s.advance(31 * SECOND);
+  assert.match(s.status(), /°F/);
+  assert.match(s.status(), /sans fonctionnalité : 1020 \(en °F\)/);
+  assert.doesNotMatch(s.status(), /pour l'instant/);
+});
+
+test('r1 m3: circuit 1 without its mode (700): no empty setpoint of it', async (t) => {
+  const params = {
+    ...fullParams(),
+    700: { ...fullParams()[700], error: 7, value: '' },
+    710: disabled('Comfort setpoint'),
+    712: disabled('Reduced setpoint'),
+    8744: disabled('Flow setpoint H1'),
+  };
+  const v = decode('bsb', params);
+  assert.equal(v.mode, undefined);
+  assert.deepEqual(v.pending, {});
+  const s = await setup(t, { params });
+  const roles = s.roles(s.discovered());
+  for (const role of ['heating-setpoint', 'heating-reduced-target', 'flow-setpoint']) {
+    assert.ok(!roles.includes(role), role);
+  }
+  assert.ok(roles.includes('temperature-room'), 'the rest of the controller is there');
 });

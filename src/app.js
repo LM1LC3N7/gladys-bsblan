@@ -1492,14 +1492,26 @@ export class BsbLanApp {
     const issues = Object.entries(adapter.extraIssues ?? {}).filter(([id]) =>
       this.config.extraParams.includes(id),
     );
+    // Gladys cannot empty a value: a feature that had one keeps showing it
+    // (said as "last value received", r1 B1).
+    const shown = (id) => {
+      const f = (device?.features ?? []).find((x) => x?.external_id === id);
+      return (
+        this.publisher.valued.has(id) ||
+        (f?.last_value !== undefined && f?.last_value !== null) ||
+        (typeof f?.last_value_string === 'string' && f.last_value_string !== '')
+      );
+    };
     const waiting = issues
       .filter(
         ([id, why]) =>
           why === 'pending' || (why === 'inactive' && has.has(ids.feature(extraRole(id)))),
       )
-      .map(([id]) => id)
+      .map(([id]) => [id, shown(ids.feature(extraRole(id)))])
       .slice(0, LIMITS.extraNoted);
-    const noValue = issues.filter(([id]) => !waiting.includes(id)).slice(0, LIMITS.extraNoted);
+    const noValue = issues
+      .filter(([id, why]) => why !== 'pending' && !waiting.some(([w]) => w === id))
+      .slice(0, LIMITS.extraNoted);
     if (noValue.length > 0) {
       notes.push(T.notes.extraNoValue(noValue));
     }
@@ -1518,9 +1530,17 @@ export class BsbLanApp {
       if (missing.length > 0) {
         notes.push(T.notes.extraNotInDevice(missing));
       }
-      const pending = pendingRoles(adapter.values).filter((role) => !has.has(ids.feature(role)));
-      if (pending.length > 0) {
-        notes.push(T.notes.pendingNotInDevice(pending));
+      const pending = pendingRoles(adapter.values);
+      const absent = pending.filter((role) => !has.has(ids.feature(role)));
+      if (absent.length > 0) {
+        notes.push(T.notes.pendingNotInDevice(absent));
+      }
+      // In the device: empty, or showing the last value received (r1 B1).
+      const inDevice = pending
+        .filter((role) => has.has(ids.feature(role)))
+        .map((role) => [role, shown(ids.feature(role))]);
+      if (inDevice.length > 0) {
+        notes.push(T.notes.pendingInDevice(inDevice));
       }
     }
     return [

@@ -122,7 +122,10 @@ test('n° 15: a parameter without a usable value is named in the status, with wh
   assert.match(text, /1042 \(erreur de BSB-LAN : paramètre inconnu du régulateur \?\)/);
   // 1043: "---" with its type (VALS): an empty feature, said apart (n° 17).
   assert.doesNotMatch(text, /1043 \(inactif/);
-  assert.match(text, /que BSB-LAN donne à « --- » pour l'instant : 1043\./);
+  assert.match(
+    text,
+    /que BSB-LAN donne à « --- » pour l'instant : 1043 \(vide, aucune valeur encore\)\./,
+  );
   assert.match(text, /1044 \(valeur illisible en nombre ou en texte\)/);
   // The fake answers an unknown id as BSB-LAN does: inactive.
   assert.match(text, /1045 \(inactif/);

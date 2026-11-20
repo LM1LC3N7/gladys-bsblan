@@ -1,6 +1,6 @@
 // -----------------------------------------------------------------------------
 // Mutants of the fixes for forum t/11458 n° 9 and n° 11 (0.3.4), n° 13 (0.4.0), n° 15 (0.4.1),
-// n° 17 (X1-X11), review bsblan-032-r3 (m1, m2).
+// n° 17 (X1-X11), review bsblan-pending-r1 (Y1-Y6), review bsblan-032-r3 (m1, m2).
 // Each one breaks one fix; the whole suite must fail, never hang. Run one at a
 // time in a private copy of the repository (never the working tree), under a
 // RAM cap and a deadline that kills the whole process group:
@@ -503,8 +503,8 @@ const MUTANTS = [
   [
     'X5-type-guessed-from-dataType-0',
     'src/params.js',
-    "  const vals = family === 'VALS' || typeName === 'TEMP';",
-    "  const vals = field(entry, 'dataType') === 0 || family === 'VALS' || typeName === 'TEMP';",
+    "  const vals = family === 'VALS' || temp;",
+    "  const vals = field(entry, 'dataType') === 0 || family === 'VALS' || temp;",
   ],
   [
     'X6-fahrenheit-pending',
@@ -521,8 +521,8 @@ const MUTANTS = [
   [
     'X8-no-update-note-for-pending',
     'src/app.js',
-    '      if (pending.length > 0) {\n        notes.push(T.notes.pendingNotInDevice(pending));',
-    '      if (false) {\n        notes.push(T.notes.pendingNotInDevice(pending));',
+    '      if (absent.length > 0) {\n        notes.push(T.notes.pendingNotInDevice(absent));',
+    '      if (false) {\n        notes.push(T.notes.pendingNotInDevice(absent));',
   ],
   [
     'X9-extra-pending-kind-forgotten',
@@ -541,6 +541,33 @@ const MUTANTS = [
     'src/params.js',
     "  const vals =\n    field(entry, 'dataType_family') === 'VALS' || field(entry, 'dataType_name') === 'TEMP';\n  return vals && CELSIUS.has(unit);",
     '  return CELSIUS.has(unit);',
+  ],
+  // Review bsblan-pending-r1: B1 (last value said), m1, m2, m3.
+  [
+    'Y1-no-in-device-note',
+    'src/app.js',
+    '      if (inDevice.length > 0) {\n        notes.push(T.notes.pendingInDevice(inDevice));',
+    '      if (false) {\n        notes.push(T.notes.pendingInDevice(inDevice));',
+  ],
+  ['Y2-last-value-never-known', 'src/app.js', '        this.publisher.valued.has(id) ||\n', ''],
+  ['Y3-valued-never-added', 'src/publisher.js', '    this.valued.add(featureId);\n', ''],
+  [
+    'Y4-temp-without-unit-guessed',
+    'src/params.js',
+    "  if (family === 'VALS' && !temp) {",
+    "  if (family === 'VALS') {",
+  ],
+  [
+    'Y5-fahrenheit-pending-kept',
+    'src/params.js',
+    '  if (values.fahrenheit) {\n    // The controller speaks °F',
+    '  if (false) {\n    // The controller speaks °F',
+  ],
+  [
+    'Y6-hc1-pending-without-its-mode',
+    'src/params.js',
+    '      (!DHW_KEYS.has(key) || values.dhwMode !== undefined) &&\n      (!HC1_KEYS.has(key) || values.mode !== undefined)',
+    '      (!DHW_KEYS.has(key) || values.dhwMode !== undefined)',
   ],
 ];
 

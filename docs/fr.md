@@ -80,14 +80,21 @@ Protection). Quand BSB-LAN imprime son type avec cette réponse (un nombre,
 régulateur ne donne pas de valeur : rien n'est publié pour elle, jamais 0.
 Cela vaut pour les consignes de confort, réduite et de départ des deux
 circuits (710, 712, 8744, 1010, 1012, 8774) et celles de l'eau chaude (1610,
-1612 ; seulement une fois que le mode de l'eau chaude 1600 a donné une
-valeur, comme le circuit 2 une fois que 1000 l'a fait). Une température
-mesurée à « --- » (8740, 8770, 8700, 8743, 8773, 8830, 8310) est une sonde
-absente : pas de fonctionnalité, comme avant. Une réponse sans son type
-(anciens firmwares), en °F ou en erreur ne crée rien non plus. Un appareil
-créé avant reçoit la fonctionnalité vide par « Mettre à jour » dans l'onglet
-Découverte ; l'état de l'intégration le dit. Une commande sur une consigne à
-« --- » est refusée comme toute commande sans valeur relue.
+1612), chaque circuit seulement une fois que son mode (700, 1000, 1600) a
+donné une valeur. Une température mesurée à « --- » (8740, 8770, 8700,
+8743, 8773, 8830, 8310) est une sonde absente : pas de fonctionnalité,
+comme avant. Une réponse sans son type (anciens firmwares), un régulateur
+en °F ou une erreur ne crée rien non plus. Un appareil créé avant reçoit la
+fonctionnalité vide par « Mettre à jour » dans l'onglet Découverte ; l'état
+de l'intégration le dit. Une commande sur une consigne à « --- » est
+refusée comme toute commande sans valeur relue.
+
+Gladys ne sait pas vider une valeur : une consigne qui a eu une valeur et
+repasse à « --- » (le circuit revenu en Protection) continue d'afficher la
+dernière valeur reçue. L'état de l'intégration la nomme alors (« la
+dernière valeur reçue, que le régulateur ne donne plus »), et nomme celles
+encore vides. Gardez le réglage `replaceDisabled` de BSB-LAN à `---` (ou
+`None`) : à `0`, une consigne à « --- » serait lue comme 0 °C.
 
 Les appareils créés avant la version 0.2.0 gardent leurs anciennes
 fonctionnalités « Consigne réduite » et « Consigne réduite de l'eau chaude »
@@ -119,8 +126,10 @@ Un paramètre ajouté **après** la création de l'appareil n'y entre pas tout
 seul : Gladys n'ajoute une fonctionnalité à un appareil déjà créé que par le
 bouton « Mettre à jour » de l'onglet Découverte de l'intégration. L'état de
 l'intégration le rappelle avec les numéros concernés. Un paramètre à
-« --- » dont BSB-LAN imprime le type (un nombre) reçoit une fonctionnalité
-vide de ce type, en attente de sa première valeur (l'état la liste). Un
+« --- » dont BSB-LAN imprime le type (un nombre ; une température avec son
+unité) reçoit une fonctionnalité vide de ce type, en attente de sa première
+valeur (l'état la liste, et dit quand Gladys affiche une dernière valeur
+reçue). Un
 paramètre pour lequel BSB-LAN ne donne pas de valeur utilisable (paramètre
 inconnu du régulateur, « --- » sans type, valeur illisible) n'a pas de
 fonctionnalité : l'état le nomme, avec la raison.

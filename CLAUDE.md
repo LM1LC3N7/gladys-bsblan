@@ -121,12 +121,15 @@ scripts/mutants.mjs          mutants of the fixes, run one at a time in a privat
   first, else `buswritable` of /JI, never believed before firmware 5.1.19.
 - **Extra parameters**: read only, forever; never a command role.
 - **"---" (no value, error 0)**: a feature of a setpoint in `PENDING`
-  (src/params.js: 710, 712, 8744, 1010, 1012, 8774; 1610, 1612 once 1600
-  gave a value) or of an extra parameter exists empty when the /JQ answer
-  prints the type (`dataType_family` VALS or `dataType_name` TEMP; never
-  `dataType` 0 alone, never °F, never an error): nothing published for it,
-  never 0, until the first value. Never a measured temperature (a sensor
-  not fitted). No /JC or /JK call: /JQ prints the type with every answer.
+  (src/params.js: 710, 712, 8744, 1010, 1012, 8774, 1610, 1612, each
+  circuit once its mode 700/1000/1600 gave a value) or of an extra
+  parameter exists empty when the /JQ answer prints the type
+  (`dataType_family` VALS or `dataType_name` TEMP*; never `dataType` 0
+  alone, never a TEMP* type without its unit for an extra, never on a °F
+  controller, never an error): nothing published for it, never 0, until
+  the first value. Never a measured temperature (a sensor not fitted).
+  Gladys cannot empty a value: back at "---", the status names the
+  feature ("the last value received" or "empty", `publisher.valued`). No /JC or /JK call: /JQ prints the type with every answer.
   Sources (docs only, never BSB-LAN's GPL code): fredlcore/BSB-LAN
   openapi.yaml (`value` "--- for disabled / not available", `error` codes,
   `readwrite`, /JC and /JK fields), docs.bsb-lan.de using.html,

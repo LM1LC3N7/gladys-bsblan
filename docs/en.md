@@ -76,14 +76,21 @@ flow setpoint of circuit 2, while that circuit is in Protection). When
 BSB-LAN prints its type with that answer (a plain number, `VALS`), the
 feature exists from the configuration, **empty** until the controller gives
 a value: no value is published for it, never 0. This holds for the comfort,
-reduced and flow setpoints of both circuits (710, 712, 8744, 1010, 1012, 8774) and the hot water setpoints (1610, 1612; only once the hot water mode
-1600 gave a value, as circuit 2 only once 1000 did). A measured temperature
-at "---" (8740, 8770, 8700, 8743, 8773, 8830, 8310) is a sensor not fitted:
-no feature, as before. An answer without its type (older firmwares), in °F
-or in error creates nothing either. A device created before gets the empty
+reduced and flow setpoints of both circuits (710, 712, 8744, 1010, 1012, 8774) and the hot water setpoints (1610, 1612), each circuit only once its
+mode (700, 1000, 1600) gave a value. A measured temperature at "---" (8740,
+8770, 8700, 8743, 8773, 8830, 8310) is a sensor not fitted: no feature, as
+before. An answer without its type (older firmwares), a controller in °F
+or an error creates nothing either. A device created before gets the empty
 feature through "Update" in the Discovery tab; the status of the
 integration says so. A command on a setpoint at "---" is refused as any
 command without a fresh value.
+
+Gladys cannot empty a value: a setpoint that had a value and goes back to
+"---" (the circuit back in Protection) keeps showing the last value
+received. The status of the integration then names it ("the last value
+received, no longer given by the controller"), and names the ones still
+empty. Keep BSB-LAN's `replaceDisabled` setting at `---` (or `None`): set
+to `0`, a setpoint at "---" would be read as 0 °C.
 
 Devices created before version 0.2.0 keep their former "Reduced setpoint"
 and "Hot water reduced setpoint" features, read only (still updated); the
@@ -111,8 +118,9 @@ A parameter added **after** the device was created does not enter it by
 itself: Gladys adds a feature to a created device only through the
 "Update" button of the Discovery tab of the integration. The status of the
 integration says so, with the numbers concerned. A parameter at "---"
-whose type BSB-LAN prints (a plain number) gets an empty feature of that
-kind, waiting for its first value (the status lists it). A parameter for
+whose type BSB-LAN prints (a plain number; a temperature type with its
+unit) gets an empty feature of that kind, waiting for its first value (the
+status lists it, and says when Gladys shows a last value received). A parameter for
 which BSB-LAN gives no usable value (unknown to the controller, "---"
 without a type, a value that cannot be read) has no feature: the status
 names it, with why.

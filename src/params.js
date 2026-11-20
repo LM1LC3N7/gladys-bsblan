@@ -229,11 +229,14 @@ export function pendingOf(entry) {
   const name = cleanText(String(field(entry, 'name') ?? ''))?.slice(0, 60);
   const family = field(entry, 'dataType_family');
   const typeName = field(entry, 'dataType_name');
-  const vals = family === 'VALS' || typeName === 'TEMP';
+  const temp = typeof typeName === 'string' && typeName.startsWith('TEMP');
+  const vals = family === 'VALS' || temp;
   if (vals && CELSIUS.has(unit) && unit !== '') {
     return { kind: 'temperature', name, unit: '°C' };
   }
-  if (family === 'VALS' && typeName !== 'TEMP') {
+  // A temperature type (TEMP, TEMP_SHORT, TEMP_WORD...) without its unit:
+  // a 'number' feature would never show its °C value (r1 m1): not guessed.
+  if (family === 'VALS' && !temp) {
     return { kind: 'number', name, unit };
   }
   return undefined;
@@ -403,9 +406,10 @@ export function extraIssue(entry) {
  * controller computes (8744, 8774) or applies (710, 712, 1010, 1012, 1610,
  * 1612) them only in some modes, and they come back. Never a measured
  * temperature (8740, 8770, 8700, 8743, 8773, 8830, 8310): "---" there is a
- * sensor not fitted, for good. Hot water only once its mode (1600) gave a
- * value, as circuit 2 only once 1000 did: never a feature of a circuit the
- * controller does not have.
+ * sensor not fitted, for good. Each circuit only once its mode gave a value
+ * (700, 1000, 1600): never a feature of a circuit the controller does not
+ * have. Nothing on a controller in °F (the features would be °C, empty for
+ * good).
  */
 export const PENDING = new Set([
   'heatingSetpoint',
@@ -418,6 +422,8 @@ export const PENDING = new Set([
   'dhwSetpointReduced',
 ]);
 const DHW_KEYS = new Set(['dhwSetpoint', 'dhwSetpointReduced']);
+/** Circuit 1 only once its mode (700) gave a value, as circuit 2 with 1000 (r1 m3). */
+const HC1_KEYS = new Set(['heatingSetpoint', 'heatingSetpointReduced', 'flowSetpoint']);
 
 /**
  * The decoded values of one poll (`answer`: the /JQ answers merged;
@@ -468,7 +474,8 @@ export function decode(bus, answer, extras = []) {
     } else if (
       PENDING.has(key) &&
       pendingTemperature(entry) &&
-      (!DHW_KEYS.has(key) || values.dhwMode !== undefined)
+      (!DHW_KEYS.has(key) || values.dhwMode !== undefined) &&
+      (!HC1_KEYS.has(key) || values.mode !== undefined)
     ) {
       // A setpoint the controller does not compute or apply now ("---"):
       // its feature exists, empty, until the first value (t/11458 n° 17).
@@ -571,6 +578,18 @@ export function decode(bus, answer, extras = []) {
   const brought = energy(entryOf(answer, P.ENERGY));
   if (brought !== undefined) {
     values.energy = brought;
+  }
+  if (values.fahrenheit) {
+    // The controller speaks °F: an empty °C feature would stay empty for
+    // good (r1 m2); the extra parameters keep their issue ('pending' says
+    // the type is there, the status note says °F).
+    values.pending = {};
+    values.extraPending = {};
+    for (const id of Object.keys(values.extraIssues)) {
+      if (values.extraIssues[id] === 'pending') {
+        values.extraIssues[id] = 'fahrenheit';
+      }
+    }
   }
   return values;
 }

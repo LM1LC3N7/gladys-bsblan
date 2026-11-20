@@ -21,6 +21,8 @@ export class StatePublisher {
     this.timers = timers;
     /** featureId -> { state } | { text } */
     this.pending = new Map();
+    /** The features given a value since the start (Gladys shows the last one). */
+    this.valued = new Set();
     this.window = [];
     this.timer = undefined;
     this.flushing = undefined;
@@ -49,6 +51,7 @@ export class StatePublisher {
 
   push(featureId, value) {
     this.pending.set(featureId, value);
+    this.valued.add(featureId);
   }
 
   /** Forgets what is pending for a deleted device and its features. */
