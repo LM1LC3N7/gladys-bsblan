@@ -652,3 +652,10 @@ for a poll request in flight; `checkBeforeSend` on `live`).
     by its reason, not by the truncated list. m7: the command test uses writable (`readwrite` 0)
     parameters at "---".
   - Mutants Y1-Y6.
+
+## Minors from review bsblan-pending-r2 (2026-11-20)
+
+- The `last_value` fallback (src/app.js:1501) has no test (reviewer mutant Z1 survives).
+- `publisher.forget` does not clear `valued`: a device deleted then created again shows "last value" by mistake (src/publisher.js:58).
+- In °F, a slope without unit is said to be "in °F" (src/params.js:590).
+- Wrong assertion message in test/xdeco-n17.test.js:492.
