@@ -56,6 +56,7 @@ import {
   deviceStates,
   parseDeviceId,
   parseFeatureId,
+  pendingRoles,
   reportedRoles,
 } from './devices.js';
 import { ERRORS, STATE_TEXTS, T, age, join, slowHinted, word } from './i18n.js';
@@ -995,7 +996,9 @@ export class BsbLanApp {
       adapter.room2Until =
         values.room2 === undefined ? this.now() + TIMINGS.room2Recheck : undefined;
     }
-    this.rememberExtras(info.mac, values.extra);
+    // An extra parameter read "---" with a usable type gets its kind now (an
+    // empty feature); a value read later has the same kind by construction.
+    this.rememberExtras(info.mac, { ...values.extraPending, ...values.extra });
     adapter.extraIssues = values.extraIssues;
     adapter.model ??= identificationOf(merged);
     adapter.info = info;
@@ -1480,19 +1483,33 @@ export class BsbLanApp {
     if (this.config.extraIgnored.length > 0) {
       notes.push(T.notes.extraIgnored(this.config.extraIgnored));
     }
-    // Typed, read, but no value: said, with why (t/11458 n° 15).
-    const noValue = Object.entries(adapter.extraIssues ?? {})
-      .filter(([id]) => this.config.extraParams.includes(id))
+    const ids = deviceIds(this.gladys, adapter.mac);
+    const device = this.createdDevice(ids.device);
+    const has = new Set((device?.features ?? []).map((f) => f?.external_id));
+    // Typed, read, but no value (t/11458 n° 15 and 17): "---" with a usable
+    // type, or on a feature already created, is an empty feature waiting
+    // for its first value; the rest is said with why, without a feature.
+    const issues = Object.entries(adapter.extraIssues ?? {}).filter(([id]) =>
+      this.config.extraParams.includes(id),
+    );
+    const waiting = issues
+      .filter(
+        ([id, why]) =>
+          why === 'pending' || (why === 'inactive' && has.has(ids.feature(extraRole(id)))),
+      )
+      .map(([id]) => id)
       .slice(0, LIMITS.extraNoted);
+    const noValue = issues.filter(([id]) => !waiting.includes(id)).slice(0, LIMITS.extraNoted);
     if (noValue.length > 0) {
       notes.push(T.notes.extraNoValue(noValue));
     }
-    // Read with a value, but the device was created before: Gladys adds a
-    // feature to a created device only through "Update" in Discovery.
-    const device = this.createdDevice(deviceIds(this.gladys, adapter.mac).device);
+    if (waiting.length > 0) {
+      notes.push(T.notes.extraPending(waiting));
+    }
+    // Read (a value, or "---" with its type), but the device was created
+    // before: Gladys adds a feature to a created device only through
+    // "Update" in Discovery.
     if (device) {
-      const has = new Set((device.features ?? []).map((f) => f?.external_id));
-      const ids = deviceIds(this.gladys, adapter.mac);
       const missing = this.config.extraParams.filter(
         (id) =>
           Object.hasOwn(this.extraSeen.get(adapter.mac) ?? {}, id) &&
@@ -1500,6 +1517,10 @@ export class BsbLanApp {
       );
       if (missing.length > 0) {
         notes.push(T.notes.extraNotInDevice(missing));
+      }
+      const pending = pendingRoles(adapter.values).filter((role) => !has.has(ids.feature(role)));
+      if (pending.length > 0) {
+        notes.push(T.notes.pendingNotInDevice(pending));
       }
     }
     return [

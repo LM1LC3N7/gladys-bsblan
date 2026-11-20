@@ -271,6 +271,16 @@ export const T = {
         `Extra parameters without a value from BSB-LAN, so without a feature: ${list.map(([id, why]) => `${id} (${EXTRA_ISSUES[why].en})`).join(', ')}.`,
         `Paramètres supplémentaires sans valeur de BSB-LAN, donc sans fonctionnalité : ${list.map(([id, why]) => `${id} (${EXTRA_ISSUES[why].fr})`).join(', ')}.`,
       ),
+    extraPending: (list) =>
+      both(
+        `Extra parameters BSB-LAN gives as "---" for now: ${list.join(', ')}. Their feature exists (or is offered in Discovery), empty until the controller gives a value.`,
+        `Paramètres supplémentaires que BSB-LAN donne à « --- » pour l'instant : ${list.join(', ')}. Leur fonctionnalité existe (ou est proposée dans Découverte), vide tant que le régulateur ne donne pas de valeur.`,
+      ),
+    pendingNotInDevice: (roles) =>
+      both(
+        `Setpoints BSB-LAN gives as "---" for now, not yet in the created device: ${roles.map((role) => FEATURE_NAMES[role].en).join(', ')}. Open the Discovery tab of the integration and click "Update" on the device to add them (empty until the controller gives a value).`,
+        `Consignes que BSB-LAN donne à « --- » pour l'instant, pas encore dans l'appareil créé : ${roles.map((role) => FEATURE_NAMES[role].fr).join(', ')}. Ouvrez l'onglet Découverte de l'intégration et cliquez sur « Mettre à jour » sur l'appareil pour les ajouter (vides tant que le régulateur ne donne pas de valeur).`,
+      ),
     extraNotInDevice: (list) =>
       both(
         `Extra parameters read but not yet in the created device: ${list.join(', ')}. Open the Discovery tab of the integration and click "Update" on the device to add them.`,

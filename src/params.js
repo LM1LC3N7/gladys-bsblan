@@ -183,6 +183,77 @@ function rawOf(entry) {
   return INACTIVE.has(text) || text.length > 40 ? undefined : text;
 }
 
+/**
+ * Whether an entry is "no value" without error: `value` inactive ("---",
+ * "", "None", null: BSB-LAN's `replaceDisabled`, openapi.yaml "--- for
+ * disabled / not available"; the payload starts with 01, the disabled
+ * flag of the telegram) and `error` 0 or absent. A parameter the controller
+ * does not have answers with an error (7 "not supported", 258 "not found"):
+ * never "no value".
+ */
+export function isInactive(entry) {
+  if (!entry) {
+    return false;
+  }
+  const error = field(entry, 'error');
+  if (error !== undefined && error !== 0 && error !== '0') {
+    return false;
+  }
+  const value = field(entry, 'value');
+  if (value === null || value === undefined) {
+    return true;
+  }
+  return (
+    (typeof value === 'string' || typeof value === 'number') && INACTIVE.has(String(value).trim())
+  );
+}
+
+/**
+ * The kind of a plain-number parameter whose value is "---" (t/11458 n°
+ * 17: 8774 while circuit 2 is in Protection), from the type BSB-LAN prints
+ * with every answer, value or not (`dataType_family` VALS or
+ * `dataType_name` TEMP, `unit`): 'temperature' (°C), 'number' (another
+ * unit, or none), else undefined: the type is not guessed (an enumeration,
+ * a text, a date, °F, or an answer without the family: `dataType` 0 alone
+ * is the default of an answer without a type, as for an unknown id).
+ * @returns {{ kind: 'temperature' | 'number', name?: string, unit: string } | undefined}
+ */
+export function pendingOf(entry) {
+  if (!isInactive(entry)) {
+    return undefined;
+  }
+  const unit = cleanText(String(field(entry, 'unit') ?? ''))?.slice(0, 12) ?? '';
+  if (FAHRENHEIT.has(unit)) {
+    return undefined;
+  }
+  const name = cleanText(String(field(entry, 'name') ?? ''))?.slice(0, 60);
+  const family = field(entry, 'dataType_family');
+  const typeName = field(entry, 'dataType_name');
+  const vals = family === 'VALS' || typeName === 'TEMP';
+  if (vals && CELSIUS.has(unit) && unit !== '') {
+    return { kind: 'temperature', name, unit: '°C' };
+  }
+  if (family === 'VALS' && typeName !== 'TEMP') {
+    return { kind: 'number', name, unit };
+  }
+  return undefined;
+}
+
+/**
+ * A built-in temperature parameter (its role fixes °C) whose value is
+ * "---" and whose type is a plain number, in °C or without a unit (the
+ * unit is not always printed with "---"): its feature can exist, empty.
+ */
+export function pendingTemperature(entry) {
+  if (!isInactive(entry)) {
+    return false;
+  }
+  const unit = String(field(entry, 'unit') ?? '').trim();
+  const vals =
+    field(entry, 'dataType_family') === 'VALS' || field(entry, 'dataType_name') === 'TEMP';
+  return vals && CELSIUS.has(unit);
+}
+
 /** A printable text of the controller, bounded (no control character). */
 export function cleanText(value) {
   if (typeof value !== 'string') {
@@ -317,7 +388,9 @@ export function extraIssue(entry) {
   }
   const value = field(entry, 'value');
   if (value === null || value === undefined || INACTIVE.has(String(value).trim())) {
-    return 'inactive';
+    // Typed as a plain number: its feature exists (or is offered), empty
+    // until the first value (`pending`); else nothing is guessed.
+    return pendingOf(entry) ? 'pending' : 'inactive';
   }
   if (FAHRENHEIT.has(String(field(entry, 'unit') ?? '').trim())) {
     return 'fahrenheit';
@@ -326,11 +399,41 @@ export function extraIssue(entry) {
 }
 
 /**
+ * The setpoints whose "---" makes an empty feature (t/11458 n° 17): the
+ * controller computes (8744, 8774) or applies (710, 712, 1010, 1012, 1610,
+ * 1612) them only in some modes, and they come back. Never a measured
+ * temperature (8740, 8770, 8700, 8743, 8773, 8830, 8310): "---" there is a
+ * sensor not fitted, for good. Hot water only once its mode (1600) gave a
+ * value, as circuit 2 only once 1000 did: never a feature of a circuit the
+ * controller does not have.
+ */
+export const PENDING = new Set([
+  'heatingSetpoint',
+  'heatingSetpointReduced',
+  'flowSetpoint',
+  'heating2Setpoint',
+  'heating2SetpointReduced',
+  'flowSetpoint2',
+  'dhwSetpoint',
+  'dhwSetpointReduced',
+]);
+const DHW_KEYS = new Set(['dhwSetpoint', 'dhwSetpointReduced']);
+
+/**
  * The decoded values of one poll (`answer`: the /JQ answers merged;
  * `extras`: the read-only parameters typed in the configuration).
  */
 export function decode(bus, answer, extras = []) {
-  const values = { fahrenheit: false, access: {}, extra: {}, extraIssues: {} };
+  const values = {
+    fahrenheit: false,
+    access: {},
+    extra: {},
+    extraIssues: {},
+    /** The keys of PENDING whose parameter answered "---" with a plain-number type: an empty feature. */
+    pending: {},
+    /** id -> { kind, name, unit }: extra parameters answering "---" with a usable type. */
+    extraPending: {},
+  };
   for (const id of extras) {
     const entry = entryOf(answer, id);
     const read = extraOf(entry);
@@ -338,6 +441,10 @@ export function decode(bus, answer, extras = []) {
       values.extra[id] = read;
     } else {
       values.extraIssues[id] = extraIssue(entry);
+      const pending = pendingOf(entry);
+      if (pending) {
+        values.extraPending[id] = pending;
+      }
     }
   }
   if (isObject(answer)) {
@@ -352,11 +459,20 @@ export function decode(bus, answer, extras = []) {
     }
   }
   const setTemperature = (key, id, min, max) => {
-    const read = temperature(entryOf(answer, id), min, max);
+    const entry = entryOf(answer, id);
+    const read = temperature(entry, min, max);
     if (read.fahrenheit) {
       values.fahrenheit = true;
     } else if (read.value !== undefined) {
       values[key] = read.value;
+    } else if (
+      PENDING.has(key) &&
+      pendingTemperature(entry) &&
+      (!DHW_KEYS.has(key) || values.dhwMode !== undefined)
+    ) {
+      // A setpoint the controller does not compute or apply now ("---"):
+      // its feature exists, empty, until the first value (t/11458 n° 17).
+      values.pending[key] = true;
     }
   };
   if (bus === 'pps') {

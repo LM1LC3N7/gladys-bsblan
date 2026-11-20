@@ -101,6 +101,27 @@ export const inactive = (name = 'Inactive') => ({
   unit: '',
 });
 
+/**
+ * A plain-number parameter the controller gives no value for now, as
+ * BSB-LAN 5.1.42 answered XDECO's 8774 while circuit 2 was in Protection
+ * (t/11458 n° 17): error 0, "---", the disabled flag in the payload, its
+ * type and unit printed as with a value.
+ */
+export const disabled = (name, unit = '°C', typeName = 'TEMP') => ({
+  name,
+  dataType_name: typeName,
+  dataType_family: 'VALS',
+  destination: 0,
+  error: 0,
+  value: '---',
+  desc: '',
+  payload: '010000',
+  precision: 0.1,
+  dataType: 0,
+  readwrite: 1,
+  unit,
+});
+
 export function bsbInfo() {
   return {
     name: 'BSB-LAN',

@@ -340,10 +340,24 @@ export function reportedRoles(values, bus) {
       roles.add(role);
     }
   }
-  for (const id of Object.keys(values.extra ?? {})) {
+  // A setpoint answering "---" with a plain-number type (t/11458 n° 17):
+  // its feature exists, empty until the first value (deviceStates gives
+  // nothing for it: never 0).
+  for (const role of pendingRoles(values)) {
+    roles.add(role);
+  }
+  for (const id of Object.keys({ ...(values.extraPending ?? {}), ...(values.extra ?? {}) })) {
     roles.add(extraRole(id));
   }
   return roles;
+}
+
+/** The roles of the built-in setpoints read "---" with a usable type (src/params.js PENDING). */
+export function pendingRoles(values) {
+  const pending = values?.pending ?? {};
+  return Object.entries(NUMBERS)
+    .filter(([role, valueOf]) => valueOf(pending) === true && !LEGACY_ROLES.includes(role))
+    .map(([role]) => role);
 }
 
 export function modeOptions(language, role = F.MODE) {

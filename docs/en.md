@@ -70,6 +70,21 @@ give cannot be set, and the detection avoids writing to a circuit that does
 not exist. **Hot water**: its features appear only when the controller
 gives their values.
 
+**Setpoints at "---"** (since 0.4.2): a setpoint the controller does not
+compute or apply for now answers `"---"` (for example 8774, the resulting
+flow setpoint of circuit 2, while that circuit is in Protection). When
+BSB-LAN prints its type with that answer (a plain number, `VALS`), the
+feature exists from the configuration, **empty** until the controller gives
+a value: no value is published for it, never 0. This holds for the comfort,
+reduced and flow setpoints of both circuits (710, 712, 8744, 1010, 1012, 8774) and the hot water setpoints (1610, 1612; only once the hot water mode
+1600 gave a value, as circuit 2 only once 1000 did). A measured temperature
+at "---" (8740, 8770, 8700, 8743, 8773, 8830, 8310) is a sensor not fitted:
+no feature, as before. An answer without its type (older firmwares), in °F
+or in error creates nothing either. A device created before gets the empty
+feature through "Update" in the Discovery tab; the status of the
+integration says so. A command on a setpoint at "---" is refused as any
+command without a fresh value.
+
 Devices created before version 0.2.0 keep their former "Reduced setpoint"
 and "Hot water reduced setpoint" features, read only (still updated); the
 settable ones come next to them, to add from the Discovery tab. New
@@ -95,9 +110,12 @@ read (the adapter queries the bus one parameter after the other).
 A parameter added **after** the device was created does not enter it by
 itself: Gladys adds a feature to a created device only through the
 "Update" button of the Discovery tab of the integration. The status of the
-integration says so, with the numbers concerned. A parameter for which
-BSB-LAN gives no usable value (unknown to the controller, "---", a value
-that cannot be read) has no feature: the status names it, with why.
+integration says so, with the numbers concerned. A parameter at "---"
+whose type BSB-LAN prints (a plain number) gets an empty feature of that
+kind, waiting for its first value (the status lists it). A parameter for
+which BSB-LAN gives no usable value (unknown to the controller, "---"
+without a type, a value that cannot be read) has no feature: the status
+names it, with why.
 
 Reading whole categories (`/JK=ALL`) is not offered: hundreds of
 parameters, an answer too large, a bus read of several minutes, and as many

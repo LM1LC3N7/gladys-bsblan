@@ -1,5 +1,6 @@
 // -----------------------------------------------------------------------------
-// Mutants of the fixes for forum t/11458 n° 9 and n° 11 (0.3.4), n° 13 (0.4.0), review bsblan-032-r3 (m1, m2).
+// Mutants of the fixes for forum t/11458 n° 9 and n° 11 (0.3.4), n° 13 (0.4.0), n° 15 (0.4.1),
+// n° 17 (X1-X11), review bsblan-032-r3 (m1, m2).
 // Each one breaks one fix; the whole suite must fail, never hang. Run one at a
 // time in a private copy of the repository (never the working tree), under a
 // RAM cap and a deadline that kills the whole process group:
@@ -474,6 +475,73 @@ const MUTANTS = [
   ],
   ['N26-no-no-value-note', 'src/app.js', '    if (noValue.length > 0) {', '    if (false) {'],
   ['N27-error-said-inactive', 'src/params.js', "    return 'error';", "    return 'inactive';"],
+  // t/11458 n° 17: a setpoint at "---" with its type is an empty feature, never 0.
+  [
+    'X1-pending-never-reported',
+    'src/devices.js',
+    '  for (const role of pendingRoles(values)) {\n    roles.add(role);\n  }\n',
+    '',
+  ],
+  [
+    'X2-pending-published-as-zero',
+    'src/devices.js',
+    '  for (const [role, valueOf] of Object.entries(NUMBERS)) {\n    const value = valueOf(values);\n    if (value !== undefined && Number.isFinite(value)) {',
+    '  for (const [role, valueOf] of Object.entries(NUMBERS)) {\n    const value = valueOf(values) ?? (valueOf(values.pending ?? {}) === true ? 0 : undefined);\n    if (value !== undefined && Number.isFinite(value)) {',
+  ],
+  [
+    'X3-any-temperature-pending',
+    'src/params.js',
+    '      PENDING.has(key) &&\n      pendingTemperature(entry) &&',
+    '      pendingTemperature(entry) &&',
+  ],
+  [
+    'X4-dhw-pending-without-its-mode',
+    'src/params.js',
+    '      (!DHW_KEYS.has(key) || values.dhwMode !== undefined)',
+    '      true',
+  ],
+  [
+    'X5-type-guessed-from-dataType-0',
+    'src/params.js',
+    "  const vals = family === 'VALS' || typeName === 'TEMP';",
+    "  const vals = field(entry, 'dataType') === 0 || family === 'VALS' || typeName === 'TEMP';",
+  ],
+  [
+    'X6-fahrenheit-pending',
+    'src/params.js',
+    "  if (FAHRENHEIT.has(unit)) {\n    return undefined;\n  }\n  const name = cleanText(String(field(entry, 'name') ?? ''))?.slice(0, 60);\n  const family",
+    "  const name = cleanText(String(field(entry, 'name') ?? ''))?.slice(0, 60);\n  const family",
+  ],
+  [
+    'X7-error-is-no-value',
+    'src/params.js',
+    "  if (error !== undefined && error !== 0 && error !== '0') {\n    return false;\n  }\n  const value = field(entry, 'value');\n  if (value === null || value === undefined) {\n    return true;",
+    "  const value = field(entry, 'value');\n  if (value === null || value === undefined) {\n    return true;",
+  ],
+  [
+    'X8-no-update-note-for-pending',
+    'src/app.js',
+    '      if (pending.length > 0) {\n        notes.push(T.notes.pendingNotInDevice(pending));',
+    '      if (false) {\n        notes.push(T.notes.pendingNotInDevice(pending));',
+  ],
+  [
+    'X9-extra-pending-kind-forgotten',
+    'src/app.js',
+    '    this.rememberExtras(info.mac, { ...values.extraPending, ...values.extra });',
+    '    this.rememberExtras(info.mac, values.extra);',
+  ],
+  [
+    'X10-extra-inactive-said-without-feature',
+    'src/app.js',
+    "          why === 'pending' || (why === 'inactive' && has.has(ids.feature(extraRole(id)))),",
+    "          why === 'pending',",
+  ],
+  [
+    'X11-built-in-pending-with-untyped-answer',
+    'src/params.js',
+    "  const vals =\n    field(entry, 'dataType_family') === 'VALS' || field(entry, 'dataType_name') === 'TEMP';\n  return vals && CELSIUS.has(unit);",
+    '  return CELSIUS.has(unit);',
+  ],
 ];
 
 function apply(file, from, to) {

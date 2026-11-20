@@ -10,6 +10,25 @@ the notes of the version's GitHub Release.
 
 ## [Unreleased]
 
+### Fixed
+
+- A setpoint BSB-LAN gives as `"---"` at the configuration (forum t/11458
+  n° 17: 8774, the resulting flow setpoint of circuit 2, while that circuit
+  is in Protection) had no feature until the controller computed it again
+  and "Update" was clicked in Discovery. When BSB-LAN prints the type of
+  the parameter with that answer (a plain number), the feature is created
+  at once, empty until the first value (nothing published, never 0): the
+  comfort, reduced and flow setpoints of both circuits and the hot water
+  setpoints (once the hot water mode gave a value). An extra parameter at
+  "---" with its type gets its empty feature too. A measured temperature
+  at "---" (a sensor not fitted), an answer without its type, in °F or in
+  error: unchanged, no feature. A device created before gets the empty
+  feature through "Update": the status says so. Commands on a setpoint at
+  "---" stay refused as any command without a fresh value.
+- The status said "so without a feature" of an extra parameter at "---"
+  whose feature already exists (review 0.4.1 r1): it now says the feature
+  waits for a value.
+
 ## [0.4.1] - 2026-11-19
 
 ### Fixed

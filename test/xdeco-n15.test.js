@@ -120,7 +120,9 @@ test('n° 15: a parameter without a usable value is named in the status, with wh
   const text = s.status();
   assert.match(text, /Paramètres supplémentaires sans valeur de BSB-LAN, donc sans fonctionnalité/);
   assert.match(text, /1042 \(erreur de BSB-LAN : paramètre inconnu du régulateur \?\)/);
-  assert.match(text, /1043 \(inactif, « --- »\)/);
+  // 1043: "---" with its type (VALS): an empty feature, said apart (n° 17).
+  assert.doesNotMatch(text, /1043 \(inactif/);
+  assert.match(text, /que BSB-LAN donne à « --- » pour l'instant : 1043\./);
   assert.match(text, /1044 \(valeur illisible en nombre ou en texte\)/);
   // The fake answers an unknown id as BSB-LAN does: inactive.
   assert.match(text, /1045 \(inactif/);
@@ -132,8 +134,9 @@ test('n° 15: extraIssue says why, and nothing for a usable value', () => {
   assert.equal(extraIssue(slope), undefined);
   assert.equal(extraIssue(undefined), 'absent');
   assert.equal(extraIssue({ ...slope, error: 7 }), 'error');
-  assert.equal(extraIssue({ ...slope, value: '---' }), 'inactive');
-  assert.equal(extraIssue({ ...slope, value: null }), 'inactive');
+  assert.equal(extraIssue({ ...slope, value: '---' }), 'pending', 'typed VALS: an empty feature');
+  assert.equal(extraIssue({ ...slope, value: null }), 'pending');
+  assert.equal(extraIssue({ ...slope, dataType_family: undefined, value: '---' }), 'inactive');
   assert.equal(extraIssue({ ...slope, unit: '°F', value: '70' }), 'fahrenheit');
   assert.equal(extraIssue({ ...slope, value: 'x'.repeat(50) }), 'unreadable');
 });

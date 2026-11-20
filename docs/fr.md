@@ -72,6 +72,23 @@ régulateur ne donne pas ne peut pas être réglé, et la détection évite
 d'écrire sur un circuit qui n'existe pas. **Eau chaude** : ses
 fonctionnalités n'apparaissent que si le régulateur en donne les valeurs.
 
+**Consignes à « --- »** (depuis 0.4.2) : une consigne que le régulateur ne
+calcule ou n'applique pas pour l'instant répond `"---"` (par exemple 8774,
+la consigne de départ résultante du circuit 2, tant que ce circuit est en
+Protection). Quand BSB-LAN imprime son type avec cette réponse (un nombre,
+`VALS`), la fonctionnalité existe dès la configuration, **vide** tant que le
+régulateur ne donne pas de valeur : rien n'est publié pour elle, jamais 0.
+Cela vaut pour les consignes de confort, réduite et de départ des deux
+circuits (710, 712, 8744, 1010, 1012, 8774) et celles de l'eau chaude (1610,
+1612 ; seulement une fois que le mode de l'eau chaude 1600 a donné une
+valeur, comme le circuit 2 une fois que 1000 l'a fait). Une température
+mesurée à « --- » (8740, 8770, 8700, 8743, 8773, 8830, 8310) est une sonde
+absente : pas de fonctionnalité, comme avant. Une réponse sans son type
+(anciens firmwares), en °F ou en erreur ne crée rien non plus. Un appareil
+créé avant reçoit la fonctionnalité vide par « Mettre à jour » dans l'onglet
+Découverte ; l'état de l'intégration le dit. Une commande sur une consigne à
+« --- » est refusée comme toute commande sans valeur relue.
+
 Les appareils créés avant la version 0.2.0 gardent leurs anciennes
 fonctionnalités « Consigne réduite » et « Consigne réduite de l'eau chaude »
 en lecture seule (toujours mises à jour) ; les versions réglables arrivent
@@ -101,10 +118,12 @@ l'autre).
 Un paramètre ajouté **après** la création de l'appareil n'y entre pas tout
 seul : Gladys n'ajoute une fonctionnalité à un appareil déjà créé que par le
 bouton « Mettre à jour » de l'onglet Découverte de l'intégration. L'état de
-l'intégration le rappelle avec les numéros concernés. Un paramètre pour
-lequel BSB-LAN ne donne pas de valeur utilisable (paramètre inconnu du
-régulateur, « --- », valeur illisible) n'a pas de fonctionnalité : l'état
-le nomme, avec la raison.
+l'intégration le rappelle avec les numéros concernés. Un paramètre à
+« --- » dont BSB-LAN imprime le type (un nombre) reçoit une fonctionnalité
+vide de ce type, en attente de sa première valeur (l'état la liste). Un
+paramètre pour lequel BSB-LAN ne donne pas de valeur utilisable (paramètre
+inconnu du régulateur, « --- » sans type, valeur illisible) n'a pas de
+fonctionnalité : l'état le nomme, avec la raison.
 
 Lire des catégories entières (`/JK=ALL`) n'est pas proposé : des centaines de
 paramètres, une réponse trop grosse, une lecture du bus de plusieurs minutes

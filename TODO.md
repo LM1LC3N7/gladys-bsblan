@@ -114,7 +114,8 @@ up to date at the end of every milestone.
   `text/select` (BSB/LPB only) with a read-only `text/text` that also shows
   an unknown code; status and hot water mode `text/text`; pump
   `unknown/binary` read only (lot 6 lesson: no switch). A feature appears
-  once its parameter gave a value.
+  once its parameter gave a value, or (0.4.2) once a setpoint of `PENDING`
+  (src/params.js) answered "---" with its type: then empty, never 0.
 - **Energy as a plain value** (wave 2 / lot 6 lessons, brief): 3113 is a
   text "7968 kWh" with no documented reset nor resolution: not proven
   cumulative and reliable → `unknown/decimal`, the unit in the name, never
@@ -599,4 +600,37 @@ for a poll request in flight; `checkBeforeSend` on `live`).
   integration). Typed again, it needs "Update" as 1020; if BSB-LAN gives no usable value, the new
   note `extraNoValue` names it with why (`extraIssue`: absent, error, inactive, °F, unreadable).
 - Tests test/xdeco-n15.test.js; mutants N25-N27.
-- [ ] 0.4.1 r1 mineur : la note « donc sans fonctionnalité » est fausse quand l'appareil a déjà param-<id> et que le paramètre donne « --- » (src/i18n.js:269).
+- [x] 0.4.1 r1 mineur : la note « donc sans fonctionnalité » est fausse quand l'appareil a déjà param-<id> et que le paramètre donne « --- » (src/i18n.js:269). Done in 0.4.2 (`extraPending`).
+
+## 0.4.2 (XDECO, t/11458 n° 17: 8774 at "---" while circuit 2 is in Protection)
+
+- Cause: a feature appeared only once its parameter gave a value. 8774 ("resulting flow
+  setpoint HC2") is computed only while the circuit heats; configured in Protection, BSB-LAN
+  answered `error 0, value "---", payload 010000` (the disabled flag of the telegram), with its
+  type (`dataType_name` TEMP, `dataType_family` VALS, `unit` °C) as with any value.
+- Sources (read 2026-11-20, docs and formats only, never BSB-LAN's GPL code): openapi.yaml of
+  fredlcore/BSB-LAN (`value`: "--- for disabled / not available"; dataType 0 "number, --- for
+  unavailable"; `error` 0 ok, 7 not supported, 256-263; `readwrite` 0 rw, 1 ro, 2 wo; /JC and
+  /JK give name, unit, dataType, dataType_family/name, readwrite, possibleValues without a
+  value); docs.bsb-lan.de using.html (`S<x>=` sets "---"), CHANGELOG.html (5.0: "---" accepted
+  to disable; 5.1: `replaceDisabled`, "---" or "None" sent on a failed query over MQTT),
+  configure.html (`replaceDisabled` default "---", "Home Assistant expects None"); GitHub
+  discussion #267 (error codes, `readwrite`, `dataType_name` stripped of `VT_`); python-bsblan
+  6.1.10 (MIT, `_ref`): "---"/None/"" are "inactive", value None, the entity stays; openHAB
+  binding doc (channels per parameter whatever the value, datatype codes 0-8); Home Assistant
+  doc (one climate per detected circuit); ioBroker.bsblan README (MIT, dynamic states).
+- Decisions: the type comes from the /JQ answer itself (`dataType_family` VALS or
+  `dataType_name` TEMP): no /JC or /JK call (one more bus request for what /JQ already prints;
+  /JK=ALL stays refused). `dataType` 0 alone is not a type (the default of an answer without a
+  type; the fake answers unknown ids so): not guessed. Only setpoints (src/params.js `PENDING`):
+  a measured temperature at "---" is a sensor not fitted, for good (8770 is the usual case).
+  Hot water setpoints only once 1600 gave a value (XDECO has no hot water: never a feature of a
+  circuit the controller does not have). External ids unchanged; the created device is only
+  offered "Update" (status note `pendingNotInDevice`, names of the features). `deviceStates`
+  publishes nothing for a pending role (never 0). Extra parameters: `extraPending` (kind fixed
+  from the type, the same `extraOf` gives for a value of that type), status note `extraPending`
+  (also for a created `param-<id>` turned "---" without a type: r1 minor). Commands unchanged.
+- Tests test/xdeco-n17.test.js (XDECO's 8774 answer as fixture `disabled`); mutants X1-X11.
+- Not verified: on a real adapter, whether `unit` is printed with "---" (the role fixes °C, the
+  unit is not required for built-in roles, required for an extra temperature); whether an
+  older JSON API (1.x) prints `dataType_family` (without it, nothing changes).
